@@ -1,0 +1,4 @@
+[package]
+name = "gba-emulator"
+version = "0.1.0"
+authors = ["davedissian"]
