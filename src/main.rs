@@ -50,7 +50,7 @@ impl Memory {
             0xE000 ... 0xFDFF => self.internal[addr as usize - 0xE000] = value,
             0xFE00 ... 0xFE9F => self.oam[addr as usize - 0xFE00] = value,
             0xFFFF            => self.ier = value,
-            _ => panic!("ERROR: Out of bounds memory write")
+            _                 => panic!("ERROR: Out of bounds memory write")
         }
     }
 
@@ -75,22 +75,22 @@ impl Memory {
             0xE000 ... 0xFDFF => self.internal[addr as usize - 0xE000],
             0xFE00 ... 0xFE9F => self.oam[addr as usize - 0xFE00],
             0xFFFF            => self.ier,
-            _ => panic!("ERROR: Out of bounds memory read")
+            _                 => panic!("ERROR: Out of bounds memory read")
         }
     }
 
     fn read_word(&self, addr: u16) -> u16 {
         return
-            ((self.read(addr + 0) as u16) << 0) +
-            ((self.read(addr + 1) as u16) << 8)
+            (self.read(addr + 0) as u16 << 0) +
+            (self.read(addr + 1) as u16 << 8)
     }
 
     fn read_dword(&self, addr: u16) -> u32 {
         return
-            ((self.read(addr + 0) as u32) <<  0) +
-            ((self.read(addr + 1) as u32) <<  8) +
-            ((self.read(addr + 2) as u32) << 16) +
-            ((self.read(addr + 3) as u32) << 24)
+            (self.read(addr + 0) as u32 <<  0) +
+            (self.read(addr + 1) as u32 <<  8) +
+            (self.read(addr + 2) as u32 << 16) +
+            (self.read(addr + 3) as u32 << 24)
     }
 }
 
