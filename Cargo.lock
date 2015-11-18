@@ -1,4 +1,4 @@
 [root]
-name = "gba-emulator"
+name = "gbc-emulator"
 version = "0.1.0"
 
