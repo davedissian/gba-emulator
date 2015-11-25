@@ -1,4 +1,4 @@
-gba-emulator
+gbc-emulator
 ===============
 
-This project aims to implement an accurate GameBoy Advanced emulator using the Rust programming language
+This project aims to implement an accurate Game Boy Colour emulator using the Rust programming language
