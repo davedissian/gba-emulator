@@ -28,6 +28,13 @@ impl Cartridge {
         let title_bytes = contents[0x0134..0x0143].iter().cloned().collect();
         let title = String::from_utf8(title_bytes).unwrap();
 
+        // Calculate ROM size by shifting 32k by the value at 0x148
+        let romSize = (32 * 1024) << contents[0x148];
+        println!("{} KB", romSize / 1024);
+
+        // Verify cartridge checksum
+        // TODO
+
         // Return a new cartridge object
         Ok(Cartridge {
             rom: contents,
