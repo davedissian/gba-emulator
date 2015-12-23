@@ -3,7 +3,7 @@ use std::io::Read;
 
 pub struct Cartridge {
     pub rom: Vec<u8>,
-    pub title: String
+    pub title: String,
 }
 
 impl Cartridge {
@@ -11,7 +11,7 @@ impl Cartridge {
         // Open a cartridge file
         let mut f = match File::open(filename) {
             Ok(f) => f,
-            Err(_) => return Err("Unable to open cartridge file".to_string())
+            Err(_) => return Err("Unable to open cartridge file".to_string()),
         };
 
         // Read content from the file
@@ -37,7 +37,7 @@ impl Cartridge {
         // Return a new cartridge object
         Ok(Cartridge {
             rom: contents,
-            title: title
+            title: title,
         })
     }
 }

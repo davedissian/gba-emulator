@@ -1,4 +1,4 @@
-use gbc::memory;
+use memory;
 
 // TODO: Move this elsewhere
 // Extract bits between min and max inclusive
@@ -56,9 +56,6 @@ enum Condition {
     SignPos,
     RegB0 // ???
 }
-
-// High 8 - LHS, Low 8 - RHS
-// eg: BC register has B in high 8 and C in low 8
 struct Registers {
     /*
         Flag Register:
@@ -70,11 +67,16 @@ struct Registers {
         4    cy    C   NC   Carry Flag
         3-0  -     -   -    Not used (always zero)
     */
-    af: u16,    // Accumulator and Flags
+    a: u8,
+    f: u8,
+    b: u8,
+    c: u8,
+    d: u8,
+    e: u8,
+    h: u8,
+    l: u8,
 
-    bc: u16,    // BC
-    de: u16,    // DE
-    hl: u16,    // HL
+    // 16 bit
     sp: u16,    // Stack Pointer
     pc: u16     // Program Counter
 }
@@ -91,10 +93,14 @@ impl CPU {
 
             // Initialise registers
             registers: Registers {
-                af: 0,
-                bc: 0,
-                de: 0,
-                hl: 0,
+                a: 0,
+                f: 0,
+                b: 0,
+                c: 0,
+                d: 0,
+                e: 0,
+                h: 0,
+                l: 0,
                 sp: 0,
                 pc: 0
             }
@@ -140,8 +146,8 @@ impl CPU {
 
         // Fetch an instruction opcode from memory
         let opcode_bytes = [
-            memory.read(self.registers.pc),
-            memory.read(self.registers.pc + 1)
+            memory.read_u8(self.registers.pc),
+            memory.read_u8(self.registers.pc + 1)
         ];
 
         // Decode and execute
@@ -170,11 +176,11 @@ impl CPU {
             0x1A => { self.dispatch_load(AddressMode::DE, AddressMode::A); 1 },
             0xFD => match opcode_bytes[1] {
                 0x3A => {
-                    let ext_addr = AddressMode::Ext(memory.read_word(self.registers.pc + 2));
+                    let ext_addr = AddressMode::Ext(memory.read_u16(self.registers.pc + 2));
                     self.dispatch_load(ext_addr, AddressMode::A); 4
                 },
                 0x2E => {
-                    let imm_addr = AddressMode::Imm(memory.read(self.registers.pc + 2));
+                    let imm_addr = AddressMode::Imm(memory.read_u8(self.registers.pc + 2));
                     self.dispatch_load(imm_addr, AddressMode::A); 3
                 },
                 _ => {
@@ -240,7 +246,7 @@ impl CPU {
 
             // All these instructions are immediate addressing
             0xDD => {
-                let imm_addr = AddressMode::Imm(memory.read(self.registers.pc + 2));
+                let imm_addr = AddressMode::Imm(memory.read_u8(self.registers.pc + 2));
                 match opcode_bytes[1] {
                     0xD5 => self.dispatch_load(imm_addr, AddressMode::B),
                     0xDE => self.dispatch_load(imm_addr, AddressMode::C),
@@ -269,7 +275,7 @@ impl CPU {
 
             // External Address Destination
             0x32 => {
-                let ext_addr = AddressMode::Ext(memory.read_word(self.registers.pc + 1));
+                let ext_addr = AddressMode::Ext(memory.read_u16(self.registers.pc + 1));
                 self.dispatch_load(AddressMode::A, ext_addr);
                 3
             },
@@ -290,7 +296,7 @@ impl CPU {
             0x85 => { self.dispatch_arithmetic(Arithmetic::ADD, AddressMode::L); 1 },
             0x86 => { self.dispatch_arithmetic(Arithmetic::ADD, AddressMode::HL); 1 },
             0xC6 => {
-                let imm_addr = AddressMode::Imm(memory.read(self.registers.pc + 1));
+                let imm_addr = AddressMode::Imm(memory.read_u8(self.registers.pc + 1));
                 self.dispatch_arithmetic(Arithmetic::ADD, imm_addr); 2
             },
 
@@ -304,7 +310,7 @@ impl CPU {
             0x8D => { self.dispatch_arithmetic(Arithmetic::ADC, AddressMode::L); 1 },
             0x8E => { self.dispatch_arithmetic(Arithmetic::ADC, AddressMode::HL); 1 },
             0xCE => {
-                let imm_addr = AddressMode::Imm(memory.read(self.registers.pc + 1));
+                let imm_addr = AddressMode::Imm(memory.read_u8(self.registers.pc + 1));
                 self.dispatch_arithmetic(Arithmetic::ADC, imm_addr); 2
             },
 
@@ -318,7 +324,7 @@ impl CPU {
             0x95 => { self.dispatch_arithmetic(Arithmetic::SUB, AddressMode::L); 1 },
             0x96 => { self.dispatch_arithmetic(Arithmetic::SUB, AddressMode::HL); 1 },
             0xD6 => {
-                let imm_addr = AddressMode::Imm(memory.read(self.registers.pc + 1));
+                let imm_addr = AddressMode::Imm(memory.read_u8(self.registers.pc + 1));
                 self.dispatch_arithmetic(Arithmetic::SUB, imm_addr); 2
             },
 
@@ -332,7 +338,7 @@ impl CPU {
             0x9D => { self.dispatch_arithmetic(Arithmetic::SBC, AddressMode::L); 1 },
             0x9E => { self.dispatch_arithmetic(Arithmetic::SBC, AddressMode::HL); 1 },
             0xDE => {
-                let imm_addr = AddressMode::Imm(memory.read(self.registers.pc + 1));
+                let imm_addr = AddressMode::Imm(memory.read_u8(self.registers.pc + 1));
                 self.dispatch_arithmetic(Arithmetic::SBC, imm_addr); 2
             },
 
@@ -346,7 +352,7 @@ impl CPU {
             0xA5 => { self.dispatch_arithmetic(Arithmetic::AND, AddressMode::L); 1 },
             0xA6 => { self.dispatch_arithmetic(Arithmetic::AND, AddressMode::HL); 1 },
             0xE6 => {
-                let imm_addr = AddressMode::Imm(memory.read(self.registers.pc + 1));
+                let imm_addr = AddressMode::Imm(memory.read_u8(self.registers.pc + 1));
                 self.dispatch_arithmetic(Arithmetic::AND, imm_addr); 2
             },
 
@@ -360,7 +366,7 @@ impl CPU {
             0xAD => { self.dispatch_arithmetic(Arithmetic::XOR, AddressMode::L); 1 },
             0xAE => { self.dispatch_arithmetic(Arithmetic::XOR, AddressMode::HL); 1 },
             0xEE => {
-                let imm_addr = AddressMode::Imm(memory.read(self.registers.pc + 1));
+                let imm_addr = AddressMode::Imm(memory.read_u8(self.registers.pc + 1));
                 self.dispatch_arithmetic(Arithmetic::XOR, imm_addr); 2
             },
 
@@ -374,7 +380,7 @@ impl CPU {
             0xB5 => { self.dispatch_arithmetic(Arithmetic::OR, AddressMode::L); 1 },
             0xB6 => { self.dispatch_arithmetic(Arithmetic::OR, AddressMode::HL); 1 },
             0xF6 => {
-                let imm_addr = AddressMode::Imm(memory.read(self.registers.pc + 1));
+                let imm_addr = AddressMode::Imm(memory.read_u8(self.registers.pc + 1));
                 self.dispatch_arithmetic(Arithmetic::OR, imm_addr); 2
             },
 
@@ -388,7 +394,7 @@ impl CPU {
             0xBD => { self.dispatch_arithmetic(Arithmetic::CP, AddressMode::L); 1 },
             0xBE => { self.dispatch_arithmetic(Arithmetic::CP, AddressMode::HL); 1 },
             0xFE => {
-                let imm_addr = AddressMode::Imm(memory.read(self.registers.pc + 1));
+                let imm_addr = AddressMode::Imm(memory.read_u8(self.registers.pc + 1));
                 self.dispatch_arithmetic(Arithmetic::CP, imm_addr); 2
             },
 
@@ -444,39 +450,39 @@ impl CPU {
             // --------------------
 
             0xC3 => {
-                let ext_addr = memory.read_word(self.registers.pc + 1);
+                let ext_addr = memory.read_u16(self.registers.pc + 1);
                 self.dispatch_jump(ext_addr, Condition::None); 3
             },
             0xD8 => {
-                let ext_addr = memory.read_word(self.registers.pc + 1);
+                let ext_addr = memory.read_u16(self.registers.pc + 1);
                 self.dispatch_jump(ext_addr, Condition::Carry); 3
             },
             0xD2 => {
-                let ext_addr = memory.read_word(self.registers.pc + 1);
+                let ext_addr = memory.read_u16(self.registers.pc + 1);
                 self.dispatch_jump(ext_addr, Condition::NonCarry); 3
             },
             0xCA => {
-                let ext_addr = memory.read_word(self.registers.pc + 1);
+                let ext_addr = memory.read_u16(self.registers.pc + 1);
                 self.dispatch_jump(ext_addr, Condition::Zero); 3
             },
             0xC2 => {
-                let ext_addr = memory.read_word(self.registers.pc + 1);
+                let ext_addr = memory.read_u16(self.registers.pc + 1);
                 self.dispatch_jump(ext_addr, Condition::NonZero); 3
             },
             0xEA => {
-                let ext_addr = memory.read_word(self.registers.pc + 1);
+                let ext_addr = memory.read_u16(self.registers.pc + 1);
                 self.dispatch_jump(ext_addr, Condition::ParityEven); 3
             },
             0xE2 => {
-                let ext_addr = memory.read_word(self.registers.pc + 1);
+                let ext_addr = memory.read_u16(self.registers.pc + 1);
                 self.dispatch_jump(ext_addr, Condition::ParityOdd); 3
             },
             0xFA => {
-                let ext_addr = memory.read_word(self.registers.pc + 1);
+                let ext_addr = memory.read_u16(self.registers.pc + 1);
                 self.dispatch_jump(ext_addr, Condition::SignNeg); 3
             },
             0xF2 => {
-                let ext_addr = memory.read_word(self.registers.pc + 1);
+                let ext_addr = memory.read_u16(self.registers.pc + 1);
                 self.dispatch_jump(ext_addr, Condition::SignPos); 3
             },
 
@@ -497,17 +503,21 @@ impl CPU {
     pub fn dump_state(&self) {
         println!("Dumping current CPU state");
         println!("Registers:");
-        println!("- AF: 0x{:04x}", self.registers.af);
-        println!("- BC: 0x{:04x}", self.registers.bc);
-        println!("- DE: 0x{:04x}", self.registers.de);
-        println!("- HL: 0x{:04x}", self.registers.hl);
+        println!("- A: 0x{:02x}", self.registers.a);
+        println!("- F: 0x{:02x}", self.registers.f);
+        println!("- B: 0x{:02x}", self.registers.b);
+        println!("- C: 0x{:02x}", self.registers.c);
+        println!("- D: 0x{:02x}", self.registers.d);
+        println!("- E: 0x{:02x}", self.registers.e);
+        println!("- H: 0x{:02x}", self.registers.h);
+        println!("- L: 0x{:02x}", self.registers.l);
         println!("- SP: 0x{:04x}", self.registers.sp);
         println!("- PC: 0x{:04x}", self.registers.pc);
         println!("Flags:");
-        println!("- Zero: {}", get_bit(self.registers.af, 7));
-        println!("- Add/Sub: {}", get_bit(self.registers.af, 6));
-        println!("- Half Carry: {}", get_bit(self.registers.af, 5));
-        println!("- Carry Flag {}", get_bit(self.registers.af, 4));
+        println!("- Zero: {}", get_bit(self.registers.f as u16, 7));
+        println!("- Add/Sub: {}", get_bit(self.registers.f as u16, 6));
+        println!("- Half Carry: {}", get_bit(self.registers.f as u16, 5));
+        println!("- Carry Flag {}", get_bit(self.registers.f as u16, 4));
     }
 
     // Dispatched instruction handlers
