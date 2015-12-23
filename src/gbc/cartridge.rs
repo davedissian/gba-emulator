@@ -1,4 +1,3 @@
-use std::str;
 use std::fs::File;
 use std::io::Read;
 
@@ -29,8 +28,8 @@ impl Cartridge {
         let title = String::from_utf8(title_bytes).unwrap();
 
         // Calculate ROM size by shifting 32k by the value at 0x148
-        let romSize = (32 * 1024) << contents[0x148];
-        println!("{} KB", romSize / 1024);
+        let rom_size = (32 * 1024) << contents[0x148];
+        println!("status: ROM size is {} KB", rom_size / 1024);
 
         // Verify cartridge checksum
         // TODO

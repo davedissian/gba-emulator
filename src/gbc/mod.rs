@@ -2,10 +2,12 @@ mod cpu;
 mod memory;
 mod cartridge;
 
+use std::rc::Rc;
+
 pub struct GBC {
     cpu: cpu::CPU,
     memory: memory::Memory,
-    cartridge: Option<Box<cartridge::Cartridge>>
+    cartridge: Option<Rc<cartridge::Cartridge>>
 }
 
 impl GBC {
@@ -21,16 +23,17 @@ impl GBC {
         match cartridge::Cartridge::load(filename) {
             Ok(c) => {
                 println!("status: Loaded ROM '{}'", c.title);
-                self.cartridge = Some(Box::new(c));
+                let rc_ptr = Rc::new(c);
+                self.memory.cartridge = Some(Rc::downgrade(&rc_ptr));
+                self.cartridge = Some(rc_ptr);
             }
             Err(e) => panic!("error: Unable to load cartridge. Reason: '{}'", e)
         }
     }
 
     pub fn tick(&mut self) {
-        match self.cartridge {
-            Some(ref c) => println!("{:x}{:x}{:x}{:x}", c.rom[0], c.rom[1], c.rom[2], c.rom[3]),
-            _ => {}
+        while self.cpu.running {
+            self.cpu.tick(&mut self.memory);
         }
     }
 }

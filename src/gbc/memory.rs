@@ -1,4 +1,13 @@
+use std::rc::Weak;
+use gbc::cartridge;
+
 pub struct Memory {
+    // A optional weak reference to a cartridge
+    // This needs to be public to allow the GBC device to set this to point to
+    // the cartridge
+    pub cartridge: Option<Weak<cartridge::Cartridge>>,
+
+    // Internal RAM structures
     vram: [u8; 8192],
     bank: [u8; 8192],
     internal: [u8; 8192],
@@ -9,6 +18,7 @@ pub struct Memory {
 impl Memory {
     pub fn new() -> Memory {
         Memory {
+            cartridge: None,
             vram: [0u8; 8192],
             bank: [0u8; 8192],
             internal: [0u8; 8192],
@@ -20,6 +30,7 @@ impl Memory {
     // Memory Writing
     pub fn write(&mut self, addr: u16, value: u8) {
         match addr {
+            0x0000 ... 0x7FFF => panic!("ERROR: Cannot write to a cartridge!"),
             0x8000 ... 0x9FFF => self.vram[addr as usize - 0x8000] = value,
             0xA000 ... 0xBFFF => self.bank[addr as usize - 0xA000] = value,
             0xC000 ... 0xDFFF => self.internal[addr as usize - 0xC000] = value,
@@ -45,6 +56,20 @@ impl Memory {
     // Memory Reading
     pub fn read(&self, addr: u16) -> u8 {
         match addr {
+            // Oh god reading a cartridge is slow
+            0x0000 ... 0x7FFF => {
+                match self.cartridge {
+                    Some(ref weak) => match weak.upgrade() {
+                        // Read the cartridges ROM at this location
+                        Some(ref c) => c.rom[addr as usize],
+
+                        // If the weak pointer hasn't been cleared but the cartridge
+                        // has been released, then it was probably removed whilst executing
+                        None => panic!("ERROR: Cartridge ejected?")
+                    },
+                    None => panic!("ERROR: No cartridge is loaded yet")
+                }
+            }
             0x8000 ... 0x9FFF => self.vram[addr as usize - 0x8000],
             0xA000 ... 0xBFFF => self.bank[addr as usize - 0xA000],
             0xC000 ... 0xDFFF => self.internal[addr as usize - 0xC000],
