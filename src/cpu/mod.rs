@@ -154,18 +154,18 @@ impl<'a> CpuOps for &'a mut Cpu {
     // control
     fn jp(self, cond: Cond) {
         let dest = self.next_u16();
-        println!("status: Jump - dest: {:02x} cond: {:?}", dest, cond);
+        println!("status: Jump - dest: {:04x} cond: {:?}", dest, cond);
     }
     fn jp_hl(self, cond: Cond) {
         println!("status: Jump (HL) - cond: {:?}", cond);
     }
     fn jr(self, cond: Cond) {
         let offset = self.next_u8();
-        println!("status: Jump - dest: {:02x} cond: {:?}", self.regs.pc + offset as u16, cond);
+        println!("status: Jump - dest: {:04x} cond: {:?}", self.regs.pc + offset as u16, cond);
     }
     fn call(self, cond: Cond) {
         let dest = self.next_u16();
-        println!("status: Call - dest: {:02x} cond: {:?}", dest, cond);
+        println!("status: Call - dest: {:04x} cond: {:?}", dest, cond);
     }
     fn ret(self, cond: Cond) {
         println!("status: Return - cond: {:?}", cond);
@@ -210,7 +210,9 @@ impl Cpu {
     }
 
     fn next_u16(&mut self) -> u16 {
-        ((self.next_u8() as u16) >> 8) | self.next_u8() as u16
+        let l = self.next_u8();
+        let h = self.next_u8();
+        ((l as u16) << 8) | (h as u16)
     }
 
     // Some misc helper functions
