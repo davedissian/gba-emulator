@@ -1,10 +1,9 @@
-use std::rc::Weak;
 use cartridge::Cartridge;
 
 pub struct Memory {
     // A optional weak reference to a cartridge
     // This needs to be public to allow the GBC device to set this to point to the cartridge
-    pub cartridge: Option<Weak<Cartridge>>,
+    pub cartridge: Option<Cartridge>,
 
     // Internal RAM structures
     vram: [u8; 8192],
@@ -48,19 +47,9 @@ impl Memory {
     // Memory Reading
     pub fn read_u8(&self, addr: u16) -> u8 {
         match addr {
-            // Oh god reading a cartridge is slow
             0x0000...0x7FFF => {
                 match self.cartridge {
-                    Some(ref weak) => {
-                        match weak.upgrade() {
-                            // Read the cartridges ROM at this location
-                            Some(ref c) => c.rom[addr as usize],
-
-                            // If the weak pointer hasn't been cleared but the cartridge
-                            // has been released, then it was probably removed whilst executing
-                            None => panic!("ERROR: Cartridge ejected?"),
-                        }
-                    }
+                    Some(ref c) => c.rom[addr as usize],
                     None => panic!("ERROR: No cartridge is loaded yet"),
                 }
             }

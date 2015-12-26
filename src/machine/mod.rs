@@ -1,21 +1,21 @@
 use std::rc::Rc;
+use std::cell::RefCell;
 
-use cpu::CPU;
+use cpu::Cpu;
 use memory::Memory;
 use cartridge::Cartridge;
 
 pub struct Machine {
-    cpu: CPU,
-    memory: Memory,
-    cartridge: Option<Rc<Cartridge>>,
+    cpu: Cpu,
+    memory: Rc<RefCell<Memory>>,
 }
 
 impl Machine {
     pub fn new() -> Machine {
+        let m = Rc::new(RefCell::new(Memory::new()));
         Machine {
-            cpu: CPU::new(),
-            memory: Memory::new(),
-            cartridge: None,
+            cpu: Cpu::new(m.clone()),
+            memory: m.clone()
         }
     }
 
@@ -23,17 +23,15 @@ impl Machine {
         match Cartridge::load(filename) {
             Ok(c) => {
                 println!("status: Loaded ROM '{}'", c.title);
-                let rc_ptr = Rc::new(c);
-                self.memory.cartridge = Some(Rc::downgrade(&rc_ptr));
-                self.cartridge = Some(rc_ptr);
+                self.memory.borrow_mut().cartridge = Some(c);
             }
-            Err(e) => panic!("error: Unable to load cartridge. Reason: '{}'", e),
+            Err(e) => panic!("error: Unable to load cartridge. Reason: '{}'", e)
         }
     }
 
     pub fn tick(&mut self) {
         loop {
-            self.cpu.tick(&mut self.memory);
+            self.cpu.tick();
             if !self.cpu.running {
                 break;
             }
