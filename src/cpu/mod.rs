@@ -51,6 +51,12 @@ pub struct Cpu {
     regs: Registers
 }
 
+// Control Conditions
+#[derive(Debug)]
+enum Cond {
+    None, C, NC, Z, NZ
+}
+
 // Registers
 impl In8 for Reg8 {
     fn read(&self, cpu: &mut Cpu) -> u8 {
@@ -110,37 +116,70 @@ impl Out8 for IndirectAddr {
     }
 }
 
-// Jump, Call and Return Conditions
-#[derive(Debug)]
-enum Condition {
-    None,
-    Carry,
-    NonCarry,
-    Zero,
-    NonZero,
-    ParityEven,
-    ParityOdd,
-    SignNeg,
-    SignPos,
-    RegB0 // ???
-}
-
 // Interpreter implementation of the CPU ops defined in the ops module
 impl<'a> CpuOps for &'a mut Cpu {
-    fn noop(&self) {}
-    fn load<I: In8, O: Out8>(&self, i: I, o: O) {
+    fn load<I: In8, O: Out8>(self, i: I, o: O) {
         println!("status: Load - in: {:?} out: {:?}", i, o);
     }
-    fn add<I: In8>(&self, i: I) {}
-    fn adc<I: In8>(&self, i: I) {}
-    fn sub<I: In8>(&self, i: I) {}
-    fn sbc<I: In8>(&self, i: I) {}
-    fn and<I: In8>(&self, i: I) {}
-    fn xor<I: In8>(&self, i: I) {}
-    fn or<I: In8>(&self, i: I) {}
-    fn cp<I: In8>(&self, i: I) {}
-    fn inc<I: In8>(&self, i: I) {}
-    fn dec<I: In8>(&self, i: I) {}
+    fn add<I: In8>(self, i: I) {
+        println!("status: Add - in: {:?}", i);
+    }
+    fn adc<I: In8>(self, i: I) {
+        println!("status: Add with carry - in: {:?}", i);
+    }
+    fn sub<I: In8>(self, i: I) {
+        println!("status: Sub - in: {:?}", i);
+    }
+    fn sbc<I: In8>(self, i: I) {
+        println!("status: Sub with carry - in: {:?}", i);
+    }
+    fn and<I: In8>(self, i: I) {
+        println!("status: And - in: {:?}", i);
+    }
+    fn xor<I: In8>(self, i: I) {
+        println!("status: Xor - in: {:?}", i);
+    }
+    fn or<I: In8>(self, i: I) {
+        println!("status: Or - in: {:?}", i);
+    }
+    fn cp<I: In8>(self, i: I) {
+        println!("status: Compare - in: {:?}", i);
+    }
+    fn inc<I: In8>(self, i: I) {
+        println!("status: Increment - in: {:?}", i);
+    }
+    fn dec<I: In8>(self, i: I) {
+        println!("status: Decrement - in: {:?}", i);
+    }
+    // control
+    fn jp(self, cond: Cond) {
+        let dest = self.next_u16();
+        println!("status: Jump - dest: {:02x} cond: {:?}", dest, cond);
+    }
+    fn jp_hl(self, cond: Cond) {
+        println!("status: Jump (HL) - cond: {:?}", cond);
+    }
+    fn jr(self, cond: Cond) {
+        let offset = self.next_u8();
+        println!("status: Jump - dest: {:02x} cond: {:?}", self.regs.pc + offset as u16, cond);
+    }
+    fn call(self, cond: Cond) {
+        let dest = self.next_u16();
+        println!("status: Call - dest: {:02x} cond: {:?}", dest, cond);
+    }
+    fn ret(self, cond: Cond) {
+        println!("status: Return - cond: {:?}", cond);
+    }
+    fn reti(self) {
+        println!("status: Return from Interrupt");
+    }
+    // misc
+    fn nop(self) {}
+    fn daa(self) {}
+    fn cpl(self) {}
+    fn neg(self) {}
+    fn ccf(self) {}
+    fn scf(self) {}
 }
 
 impl Cpu {
@@ -170,6 +209,10 @@ impl Cpu {
         byte
     }
 
+    fn next_u16(&mut self) -> u16 {
+        ((self.next_u8() as u16) >> 8) | self.next_u8() as u16
+    }
+
     // Some misc helper functions
     fn get_bits(&self, number: u16, min: u16, max: u16) -> u16 {
         (number >> min) & ((max - min) - 1)
@@ -180,37 +223,14 @@ impl Cpu {
     }
 
     pub fn dump_state(&self) {
-        println!("Dumping current CPU state");
         println!("Registers:");
-        println!("- A: 0x{:02x}", self.regs.a);
-        println!("- F: 0x{:02x}", self.regs.f);
-        println!("- B: 0x{:02x}", self.regs.b);
-        println!("- C: 0x{:02x}", self.regs.c);
-        println!("- D: 0x{:02x}", self.regs.d);
-        println!("- E: 0x{:02x}", self.regs.e);
-        println!("- H: 0x{:02x}", self.regs.h);
-        println!("- L: 0x{:02x}", self.regs.l);
-        println!("- SP: 0x{:04x}", self.regs.sp);
-        println!("- PC: 0x{:04x}", self.regs.pc);
+        println!("- PC: {:04x} SP: {:04x} ", self.regs.pc, self.regs.sp);
+        println!("- A: {:02x} F: {:02x} B: {:02x} C: {:02x}", self.regs.a, self.regs.f, self.regs.b, self.regs.c);
+        println!("- D: {:02x} E: {:02x} H: {:02x} L: {:02x}", self.regs.d, self.regs.e, self.regs.h, self.regs.l);
         println!("Flags:");
         println!("- Zero: {}", self.get_bit(self.regs.f as u16, 7));
         println!("- Add/Sub: {}", self.get_bit(self.regs.f as u16, 6));
         println!("- Half Carry: {}", self.get_bit(self.regs.f as u16, 5));
         println!("- Carry Flag {}", self.get_bit(self.regs.f as u16, 4));
     }
-
-/*
-    // Dispatched instruction handlers
-    pub fn load(&self, src: AddressMode, dest: AddressMode) {
-        println!("status: Load - src: {:?} dst: {:?}", src, dest);
-    }
-
-    pub fn dispatch_arithmetic(&self, op: Arithmetic, src: AddressMode) {
-        println!("status: {:?} - src: {:?}", op, src);
-    }
-
-    pub fn dispatch_jump(&self, address: u16, cond: Condition) {
-        println!("status: Jump - address: 0x{:04x} cond: {:?}", address, cond);
-    }
-    */
 }

@@ -1,10 +1,47 @@
+/*
+    The decode method below was build using the Zilog Z80 processor manual,
+    with the following alterations taken from gbspec.txt at:
+    http://www.devrs.com/gb/files/gbspec.txt
+
+    The following are added instructions:
+
+        ADD  SP,nn             ;nn = signed byte
+        LD  (HLI),A            ;Write A to (HL) and increment HL
+        LD  (HLD),A            ;Write A to (HL) and decrement HL
+        LD  A,(HLI)            ;Write (HL) to A and increment HL
+        LD  A,(HLD)            ;Write (HL) to A and decrement HL
+        LD  A,($FF00+nn)
+        LD  A,($FF00+C)
+        LD  ($FF00+nn),A
+        LD  ($FF00+C),A
+        LD  (nnnn),SP
+        LD  HL,SP+nn           ;nn = signed byte
+        STOP                   ;Stop processor & screen until button press
+        SWAP r                 ;Swap high & low nibbles of r
+
+    The following instructions have been removed:
+
+        Any command that uses the IX or IY registers.
+        All IN/OUT instructions.
+        All exchange instructions.
+        All commands prefixed by ED (except remapped RETI).
+        All conditional jumps/calls/rets on parity/overflow and sign flag.
+
+    The following instructions have different opcodes:
+
+        LD  A,[nnnn]        (..)
+        LD  [nnnn],A        (..)
+        RETI                (D9)
+*/
+
 use std::fmt::Debug;
 use cpu::Cpu;
+use cpu::Cond;
+use cpu::Imm8;
+use cpu::IndirectAddr;
 use cpu::registers::Reg8::{
     A, B, C, D, E, F, H, L
 };
-use cpu::Imm8;
-use cpu::IndirectAddr;
 
 // A trait which represents an instruction input (register/indirect/immediate)
 pub trait In8 : Debug {
@@ -17,29 +54,40 @@ pub trait Out8 : Debug {
 }
 
 pub trait CpuOps {
-    fn noop(&self);
     // 8-bit load
-    fn load<I: In8, O: Out8>(&self, i: I, o: O);
+    fn load<I: In8, O: Out8>(self, i: I, o: O);
     // 8-bit arithmetic
-    fn add<I: In8>(&self, i: I);
-    fn adc<I: In8>(&self, i: I);
-    fn sub<I: In8>(&self, i: I);
-    fn sbc<I: In8>(&self, i: I);
-    fn and<I: In8>(&self, i: I);
-    fn xor<I: In8>(&self, i: I);
-    fn or<I: In8>(&self, i: I);
-    fn cp<I: In8>(&self, i: I);
-    fn inc<I: In8>(&self, i: I);
-    fn dec<I: In8>(&self, i: I);
-    // Jumps
-
+    fn add<I: In8>(self, i: I);
+    fn adc<I: In8>(self, i: I);
+    fn sub<I: In8>(self, i: I);
+    fn sbc<I: In8>(self, i: I);
+    fn and<I: In8>(self, i: I);
+    fn xor<I: In8>(self, i: I);
+    fn or<I: In8>(self, i: I);
+    fn cp<I: In8>(self, i: I);
+    fn inc<I: In8>(self, i: I);
+    fn dec<I: In8>(self, i: I);
+    // control
+    fn jp(self, cond: Cond);        // JP n
+    fn jp_hl(self, cond: Cond);     // JP (HL)
+    fn jr(self, cond: Cond);
+    fn call(self, cond: Cond);
+    fn ret(self, cond: Cond);
+    fn reti(self);
+    // misc
+    fn nop(self);
+    fn daa(self);
+    fn cpl(self);
+    fn neg(self);
+    fn ccf(self);
+    fn scf(self);
 }
 
 // Take an op code, and run the relevant op command
 pub fn decode<O: CpuOps>(ops: O, opcode: u8) {
     match opcode {
-        0x00 => ops.noop(),
-        
+        0x00 => ops.nop(),
+
         0x7F => ops.load(A, A),
         0x78 => ops.load(B, A),
         0x79 => ops.load(C, A),
@@ -288,46 +336,26 @@ pub fn decode<O: CpuOps>(ops: O, opcode: u8) {
         // --------------------
 
 
-        // Jump, Call and return
+        // Control
         // --------------------
-/*
-        0xC3 => {
-            let ext_addr = memory.read_u16(self.regs.pc + 1);
-            self.dispatch_jump(ext_addr, Condition::None); 3
-        },
-        0xD8 => {
-            let ext_addr = memory.read_u16(self.regs.pc + 1);
-            self.dispatch_jump(ext_addr, Condition::Carry); 3
-        },
-        0xD2 => {
-            let ext_addr = memory.read_u16(self.regs.pc + 1);
-            self.dispatch_jump(ext_addr, Condition::NonCarry); 3
-        },
-        0xCA => {
-            let ext_addr = memory.read_u16(self.regs.pc + 1);
-            self.dispatch_jump(ext_addr, Condition::Zero); 3
-        },
-        0xC2 => {
-            let ext_addr = memory.read_u16(self.regs.pc + 1);
-            self.dispatch_jump(ext_addr, Condition::NonZero); 3
-        },
-        0xEA => {
-            let ext_addr = memory.read_u16(self.regs.pc + 1);
-            self.dispatch_jump(ext_addr, Condition::ParityEven); 3
-        },
-        0xE2 => {
-            let ext_addr = memory.read_u16(self.regs.pc + 1);
-            self.dispatch_jump(ext_addr, Condition::ParityOdd); 3
-        },
-        0xFA => {
-            let ext_addr = memory.read_u16(self.regs.pc + 1);
-            self.dispatch_jump(ext_addr, Condition::SignNeg); 3
-        },
-        0xF2 => {
-            let ext_addr = memory.read_u16(self.regs.pc + 1);
-            self.dispatch_jump(ext_addr, Condition::SignPos); 3
-        }
-        */
+        0xC3 => ops.jp(Cond::None),
+        0xDA => ops.jp(Cond::C),
+        0xD2 => ops.jp(Cond::NC),
+        0xCA => ops.jp(Cond::Z),
+        0xC2 => ops.jp(Cond::NZ),
+        0x18 => ops.jr(Cond::None),
+        0xEB => ops.jp_hl(Cond::None),
+        0xCD => ops.call(Cond::None),
+        0xDC => ops.call(Cond::C),
+        0xD4 => ops.call(Cond::NC),
+        0xCC => ops.call(Cond::Z),
+        0xC4 => ops.call(Cond::NZ),
+        0xC9 => ops.ret(Cond::None),
+        0xD8 => ops.ret(Cond::C),
+        0xD0 => ops.ret(Cond::NC),
+        0xC8 => ops.ret(Cond::Z),
+        0xC0 => ops.ret(Cond::NZ),
+        0xD9 => ops.reti(),
         
         _ => println!("warning: Unknown opcode 0x{:02x}", opcode)
     }
