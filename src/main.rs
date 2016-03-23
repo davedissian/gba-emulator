@@ -6,7 +6,6 @@ mod memory;
 mod cartridge;
 
 fn main() {
-    let mut device = machine::Machine::new();
-    device.load_cartridge("roms/pokemon-gold.gbc");
+    let mut device = machine::Machine::new("roms/pokemon-gold.gbc");
     device.tick();
 }

@@ -1,9 +1,7 @@
 use cartridge::Cartridge;
 
 pub struct Memory {
-    // A optional weak reference to a cartridge
-    // This needs to be public to allow the GBC device to set this to point to the cartridge
-    pub cartridge: Option<Cartridge>,
+    cartridge: Cartridge,
 
     // Internal RAM structures
     vram: [u8; 8192],
@@ -14,9 +12,13 @@ pub struct Memory {
 }
 
 impl Memory {
-    pub fn new() -> Memory {
+    pub fn new(rom: &str) -> Memory {
+        let cartridge = match Cartridge::load(rom) {
+            Ok(c) => c,
+            Err(e) => panic!("ERROR: {}", e)
+        };
         Memory {
-            cartridge: None,
+            cartridge: cartridge,
             vram: [0u8; 8192],
             bank: [0u8; 8192],
             internal: [0u8; 8192],
@@ -47,12 +49,7 @@ impl Memory {
     // Memory Reading
     pub fn read_u8(&self, addr: u16) -> u8 {
         match addr {
-            0x0000...0x7FFF => {
-                match self.cartridge {
-                    Some(ref c) => c.rom[addr as usize],
-                    None => panic!("ERROR: No cartridge is loaded yet"),
-                }
-            }
+            0x0000...0x7FFF => self.cartridge.rom[addr as usize],
             0x8000...0x9FFF => self.vram[addr as usize - 0x8000],
             0xA000...0xBFFF => self.bank[addr as usize - 0xA000],
             0xC000...0xDFFF => self.internal[addr as usize - 0xC000],
