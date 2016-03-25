@@ -66,67 +66,67 @@ pub trait Out16 : Debug {
 }
 
 pub trait CpuOps {
-    fn next_u8(self) -> u8;
-    fn next_u16(self) -> u16;
+    fn next_u8(&mut self) -> u8;
+    fn next_u16(&mut self) -> u16;
     
     // 8-bit and 16-bit load
-    fn load<I: In8, O: Out8>(self, i: I, o: O);
-    fn load16<I: In16, O: Out16>(self, i: I, o: O);
-    fn load16_hlsp(self, i: Imm8); // Load SP + n into HL
-    fn push<I: In16>(self, i: I);
-    fn pop<O: Out16>(self, o: O);
+    fn load<I: In8, O: Out8>(&mut self, i: I, o: O);
+    fn load16<I: In16, O: Out16>(&mut self, i: I, o: O);
+    fn load16_hlsp(&mut self); // Load SP + n into HL
+    fn push<I: In16>(&mut self, i: I);
+    fn pop<O: Out16>(&mut self, o: O);
     // 8-bit arithmetic
-    fn add<I: In8>(self, i: I);
-    fn adc<I: In8>(self, i: I);
-    fn sub<I: In8>(self, i: I);
-    fn sbc<I: In8>(self, i: I);
-    fn and<I: In8>(self, i: I);
-    fn xor<I: In8>(self, i: I);
-    fn or<I: In8>(self, i: I);
-    fn cp<I: In8>(self, i: I);
-    fn inc<I: In8 + Out8>(self, i: I);
-    fn dec<I: In8 + Out8>(self, i: I);
+    fn add<I: In8>(&mut self, i: I);
+    fn adc<I: In8>(&mut self, i: I);
+    fn sub<I: In8>(&mut self, i: I);
+    fn sbc<I: In8>(&mut self, i: I);
+    fn and<I: In8>(&mut self, i: I);
+    fn xor<I: In8>(&mut self, i: I);
+    fn or<I: In8>(&mut self, i: I);
+    fn cp<I: In8>(&mut self, i: I);
+    fn inc<I: In8 + Out8>(&mut self, i: I);
+    fn dec<I: In8 + Out8>(&mut self, i: I);
     // 16-bit arithmetic
-    fn add16<I: In16>(self, i: I);
-    fn add16_sp(self, i: Imm8);
-    fn inc16<I: In16 + Out16>(self, i: I);
-    fn dec16<I: In16 + Out16>(self, i: I);
+    fn add16<I: In16>(&mut self, i: I);
+    fn add16_sp(&mut self, i: Imm8);
+    fn inc16<I: In16 + Out16>(&mut self, i: I);
+    fn dec16<I: In16 + Out16>(&mut self, i: I);
     // misc
-    fn nop(self);
-    fn daa(self);
-    fn cpl(self);
-    fn ccf(self);
-    fn scf(self);
-    fn halt(self);
-    fn stop(self);
-    fn ei(self);
-    fn di(self);
+    fn nop(&mut self);
+    fn daa(&mut self);
+    fn cpl(&mut self);
+    fn ccf(&mut self);
+    fn scf(&mut self);
+    fn halt(&mut self);
+    fn stop(&mut self);
+    fn ei(&mut self);
+    fn di(&mut self);
     // rotate and shift
-    fn rrca(self);
-    fn rra(self);
-    fn rlc<I: In8 + Out8>(self, i: I);
-    fn rl<I: In8 + Out8>(self, i: I);
-    fn rrc<I: In8 + Out8>(self, i: I);
-    fn rr<I: In8 + Out8>(self, i: I);
-    fn sla<I: In8 + Out8>(self, i: I);
-    fn sra<I: In8 + Out8>(self, i: I);
-    fn swap<I: In8 + Out8>(self, i: I);
-    fn srl<I: In8 + Out8>(self, i: I);
+    fn rrca(&mut self);
+    fn rra(&mut self);
+    fn rlc<I: In8 + Out8>(&mut self, i: I);
+    fn rl<I: In8 + Out8>(&mut self, i: I);
+    fn rrc<I: In8 + Out8>(&mut self, i: I);
+    fn rr<I: In8 + Out8>(&mut self, i: I);
+    fn sla<I: In8 + Out8>(&mut self, i: I);
+    fn sra<I: In8 + Out8>(&mut self, i: I);
+    fn swap<I: In8 + Out8>(&mut self, i: I);
+    fn srl<I: In8 + Out8>(&mut self, i: I);
     // bit manipulation
-    fn bit<O: Out8>(self, o: O);
-    fn set<O: Out8>(self, o: O);
-    fn res<O: Out8>(self, o: O);
+    fn bit<O: Out8>(&mut self, o: O);
+    fn set<O: Out8>(&mut self, o: O);
+    fn res<O: Out8>(&mut self, o: O);
     // control
-    fn jp(self, cond: Cond);        // JP n
-    fn jp_hl(self);                 // JP (HL)
-    fn jr(self, cond: Cond);
-    fn call(self, cond: Cond);
-    fn rst(self, offset: u8);
-    fn ret(self, cond: Cond);
-    fn reti(self);
+    fn jp(&mut self, cond: Cond);        // JP n
+    fn jp_hl(&mut self);                 // JP (HL)
+    fn jr(&mut self, cond: Cond);
+    fn call(&mut self, cond: Cond);
+    fn rst(&mut self, offset: u8);
+    fn ret(&mut self, cond: Cond);
+    fn reti(&mut self);
 }
 
-pub fn decode<O: CpuOps>(ops: O) {
+pub fn decode<O: CpuOps>(mut ops: O) {
     let opcode = ops.next_u8();
     match opcode { 
         // 8-bit load
@@ -225,7 +225,7 @@ pub fn decode<O: CpuOps>(ops: O) {
         0x21 => ops.load16(Imm16, HL),
         0x31 => ops.load16(Imm16, SP),
         0xF9 => ops.load16(HL, SP),
-        0xF8 => ops.load16_hlsp(Imm8),
+        0xF8 => ops.load16_hlsp(),
         0x08 => ops.load16(SP, IndirectAddr::Imm16),
 
         0xF5 => ops.push(AF),
@@ -486,7 +486,7 @@ pub fn decode<O: CpuOps>(ops: O) {
         0xCA => ops.jp(Cond::Z),
         0xD2 => ops.jp(Cond::NC),
         0xDA => ops.jp(Cond::C),
-        0xEB => ops.jp_hl(),
+        0xE9 => ops.jp_hl(),
 
         0x18 => ops.jr(Cond::None),
         0x20 => ops.jr(Cond::NZ),

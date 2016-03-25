@@ -66,7 +66,7 @@ macro_rules! write_reg_pair {
 
 // Control Conditions
 #[derive(Debug)]
-enum Cond {
+pub enum Cond {
     None, NZ, Z, NC, C
 }
 
@@ -128,19 +128,19 @@ impl Out16 for Reg16 {
 
 // Immediate operand - a constant stored in the next byte
 #[derive(Debug)]
-struct Imm8;
+pub struct Imm8;
 impl In8 for Imm8 {
     fn read(&self, cpu: &mut Cpu) -> u8 {
-        cpu.next_u8()
+        cpu.mem_next_u8()
     }
 }
 
 // Immediate extended operand - a constant stored in the next two bytes
 #[derive(Debug)]
-struct Imm16;
+pub struct Imm16;
 impl In16 for Imm16 {
     fn read(&self, cpu: &mut Cpu) -> u16 {
-        cpu.next_u16()
+        cpu.mem_next_u16()
     }
 }
 
@@ -155,246 +155,249 @@ enum IndirectAddr {
 
 impl In8 for IndirectAddr {
     fn read(&self, cpu: &mut Cpu) -> u8 {
-        match *self {
-            IndirectAddr::BC => cpu.read_u8(read_reg_pair!(cpu.regs.b, cpu.regs.c)),
-            IndirectAddr::DE => cpu.read_u8(read_reg_pair!(cpu.regs.d, cpu.regs.e)),
-            IndirectAddr::HL => cpu.read_u8(read_reg_pair!(cpu.regs.h, cpu.regs.l)),
-            IndirectAddr::C => cpu.read_u8(cpu.regs.c as u16 + 0xFF00),
-            IndirectAddr::Imm8 => cpu.read_u8(cpu.next_u8() as u16 + 0xFF00),
-            IndirectAddr::Imm16 => cpu.read_u8(cpu.next_u16())
-        }
+        let addr = match *self {
+            IndirectAddr::BC => read_reg_pair!(cpu.regs.b, cpu.regs.c),
+            IndirectAddr::DE => read_reg_pair!(cpu.regs.d, cpu.regs.e),
+            IndirectAddr::HL => read_reg_pair!(cpu.regs.h, cpu.regs.l),
+            IndirectAddr::C => cpu.regs.c as u16 + 0xFF00,
+            IndirectAddr::Imm8 => cpu.mem_next_u8() as u16 + 0xFF00,
+            IndirectAddr::Imm16 => cpu.mem_next_u16()
+        };
+        cpu.mem_read_u8(addr)
     }
 }
 
 impl Out8 for IndirectAddr {
     fn write(&self, cpu: &mut Cpu, data: u8) {
-        match *self {
-            IndirectAddr::BC => cpu.write_u8(read_reg_pair!(cpu.regs.b, cpu.regs.c), data),
-            IndirectAddr::DE => cpu.write_u8(read_reg_pair!(cpu.regs.d, cpu.regs.e), data),
-            IndirectAddr::HL => cpu.write_u8(read_reg_pair!(cpu.regs.h, cpu.regs.l), data),
-            IndirectAddr::C => cpu.write_u8(cpu.regs.c as u16 + 0xFF00, data),
-            IndirectAddr::Imm8 => cpu.write_u8(cpu.next_u8() as u16 + 0xFF00, data),
-            IndirectAddr::Imm16 => cpu.write_u8(cpu.next_u16(), data)
-        }
+        let addr = match *self {
+            IndirectAddr::BC => read_reg_pair!(cpu.regs.b, cpu.regs.c),
+            IndirectAddr::DE => read_reg_pair!(cpu.regs.d, cpu.regs.e),
+            IndirectAddr::HL => read_reg_pair!(cpu.regs.h, cpu.regs.l),
+            IndirectAddr::C => cpu.regs.c as u16 + 0xFF00,
+            IndirectAddr::Imm8 => cpu.mem_next_u8() as u16 + 0xFF00,
+            IndirectAddr::Imm16 => cpu.mem_next_u16()
+        };
+        cpu.mem_write_u8(addr, data);
     }
 }
 
 impl Out16 for IndirectAddr {
     fn write(&self, cpu: &mut Cpu, data: u16) {
-        match *self {
-            IndirectAddr::BC => cpu.write_u16(read_reg_pair!(cpu.regs.b, cpu.regs.c), data),
-            IndirectAddr::DE => cpu.write_u16(read_reg_pair!(cpu.regs.d, cpu.regs.e), data),
-            IndirectAddr::HL => cpu.write_u16(read_reg_pair!(cpu.regs.h, cpu.regs.l), data),
-            IndirectAddr::C => cpu.write_u16(cpu.regs.c as u16 + 0xFF00, data),
-            IndirectAddr::Imm8 => cpu.write_u16(cpu.next_u8() as u16 + 0xFF00, data),
-            IndirectAddr::Imm16 => cpu.write_u16(cpu.next_u16(), data)
-        }
+        let addr = match *self {
+            IndirectAddr::BC => read_reg_pair!(cpu.regs.b, cpu.regs.c),
+            IndirectAddr::DE => read_reg_pair!(cpu.regs.d, cpu.regs.e),
+            IndirectAddr::HL => read_reg_pair!(cpu.regs.h, cpu.regs.l),
+            IndirectAddr::C => cpu.regs.c as u16 + 0xFF00,
+            IndirectAddr::Imm8 => cpu.mem_next_u8() as u16 + 0xFF00,
+            IndirectAddr::Imm16 => cpu.mem_next_u16()
+        };
+        cpu.mem_write_u16(addr, data);
     }
 }
 
 // Interpreter implementation of the CPU ops defined in the ops module
 impl<'a> CpuOps for &'a mut Cpu {
-    fn next_u8(self) -> u8 { self.next_u8() }
-    fn next_u16(self) -> u16 { self.next_u16() }
+    fn next_u8(&mut self) -> u8 { self.mem_next_u8() }
+    fn next_u16(&mut self) -> u16 { self.mem_next_u16() }
 
-    fn load<I: In8, O: Out8>(self, i: I, o: O) {
+    fn load<I: In8, O: Out8>(&mut self, i: I, o: O) {
         println!("status: Load - in: {:?} out: {:?}", i, o);
     }
 
-    fn load16<I: In16, O: Out16>(self, i: I, o: O) {
+    fn load16<I: In16, O: Out16>(&mut self, i: I, o: O) {
         println!("status: Load - in: {:?} out: {:?}", i, o);
     }
     
-    fn load16_hlsp(self, i: Imm8) {
+    fn load16_hlsp(&mut self) {
         let offset = self.next_u8() as i8;
         println!("status: Load HL SP + {:?}", offset);
     }
     
-    fn push<I: In16>(self, i: I) {
+    fn push<I: In16>(&mut self, i: I) {
         println!("status: Push - in: {:?}", i);
     }
 
-    fn pop<O: Out16>(self, o: O) {
+    fn pop<O: Out16>(&mut self, o: O) {
         println!("status: Pop - out: {:?}", o);
     }
 
-    fn add<I: In8>(self, i: I) {
+    fn add<I: In8>(&mut self, i: I) {
         println!("status: Add - in: {:?}", i);
     }
 
-    fn adc<I: In8>(self, i: I) {
+    fn adc<I: In8>(&mut self, i: I) {
         println!("status: Add with carry - in: {:?}", i);
     }
 
-    fn sub<I: In8>(self, i: I) {
+    fn sub<I: In8>(&mut self, i: I) {
         println!("status: Sub - in: {:?}", i);
     }
 
-    fn sbc<I: In8>(self, i: I) {
+    fn sbc<I: In8>(&mut self, i: I) {
         println!("status: Sub with carry - in: {:?}", i);
     }
 
-    fn and<I: In8>(self, i: I) {
+    fn and<I: In8>(&mut self, i: I) {
         println!("status: And - in: {:?}", i);
     }
 
-    fn xor<I: In8>(self, i: I) {
+    fn xor<I: In8>(&mut self, i: I) {
         println!("status: Xor - in: {:?}", i);
     }
 
-    fn or<I: In8>(self, i: I) {
+    fn or<I: In8>(&mut self, i: I) {
         println!("status: Or - in: {:?}", i);
     }
 
-    fn cp<I: In8>(self, i: I) {
+    fn cp<I: In8>(&mut self, i: I) {
         println!("status: Compare - in: {:?}", i);
     }
 
-    fn inc<I: In8>(self, i: I) {
+    fn inc<I: In8>(&mut self, i: I) {
         println!("status: Increment - in: {:?}", i);
     }
 
-    fn dec<I: In8>(self, i: I) {
+    fn dec<I: In8>(&mut self, i: I) {
         println!("status: Decrement - in: {:?}", i);
     }
 
-    fn add16<I: In16>(self, i: I) {
+    fn add16<I: In16>(&mut self, i: I) {
         println!("status: Add - in: {:?}", i);
     }
 
-    fn add16_sp(self, i: Imm8) {
+    fn add16_sp(&mut self, i: Imm8) {
         println!("status: Add SP - in: {:?}", i);
     }
 
-    fn inc16<I: In16 + Out16>(self, i: I) {
+    fn inc16<I: In16 + Out16>(&mut self, i: I) {
         println!("status: Increment - in: {:?}", i);
     }
 
-    fn dec16<I: In16 + Out16>(self, i: I) {
+    fn dec16<I: In16 + Out16>(&mut self, i: I) {
         println!("status: Decrement - in: {:?}", i);
     }
 
     // misc
-    fn nop(self) {}
+    fn nop(&mut self) {}
     
-    fn daa(self) {
+    fn daa(&mut self) {
         println!("status: Decimal adjust register A");
     }
 
-    fn cpl(self) {
+    fn cpl(&mut self) {
         println!("status: Complement A");
     }
 
-    fn ccf(self) {
+    fn ccf(&mut self) {
         println!("status: Complement carry flag")
     }
 
-    fn scf(self) {
+    fn scf(&mut self) {
         println!("status: Set carry flag");
     }
     
-    fn halt(self) {
+    fn halt(&mut self) {
         println!("status: Halt");
     }
 
-    fn stop(self) {
+    fn stop(&mut self) {
         println!("status: Stop");
     }
     
-    fn ei(self) {
+    fn ei(&mut self) {
         println!("status: Enable interrupts");
     }
 
-    fn di(self) {
+    fn di(&mut self) {
         println!("status: Disable interrupts");
     }
 
     // rotate and shift
-    fn rrca(self) {
+    fn rrca(&mut self) {
         println!("status: Rotate A right with carry");
     }
 
-    fn rra(self) {
+    fn rra(&mut self) {
         println!("status: Rotate A right");
     }
 
-    fn rlc<I: In8 + Out8>(self, i: I) {
+    fn rlc<I: In8 + Out8>(&mut self, i: I) {
         println!("status: Rotate left with carry - in: {:?}", i);
     }
     
-    fn rl<I: In8 + Out8>(self, i: I) {
+    fn rl<I: In8 + Out8>(&mut self, i: I) {
         println!("status: Rotate left - in: {:?}", i);
     }
     
-    fn rrc<I: In8 + Out8>(self, i: I) {
+    fn rrc<I: In8 + Out8>(&mut self, i: I) {
         println!("status: Rotate right with carry - in: {:?}", i);
     }
     
-    fn rr<I: In8 + Out8>(self, i: I) {
+    fn rr<I: In8 + Out8>(&mut self, i: I) {
         println!("status: Rotate right - in: {:?}", i);
     }
     
-    fn sla<I: In8 + Out8>(self, i: I) {
+    fn sla<I: In8 + Out8>(&mut self, i: I) {
         println!("status: Shift left into carry - in: {:?}", i);
     }
     
-    fn sra<I: In8 + Out8>(self, i: I) {
+    fn sra<I: In8 + Out8>(&mut self, i: I) {
         println!("status: Shift right into carry - in: {:?}", i);
     }
 
-    fn swap<I: In8 + Out8>(self, i: I) {
+    fn swap<I: In8 + Out8>(&mut self, i: I) {
         println!("status: Swap - in: {:?}", i);
     }
     
-    fn srl<I: In8 + Out8>(self, i: I) {
+    fn srl<I: In8 + Out8>(&mut self, i: I) {
         println!("status: Shift right into carry - in: {:?}", i);
     }
 
     // bit manipulation
-    fn bit<O: Out8>(self, o: O) {
+    fn bit<O: Out8>(&mut self, o: O) {
         let bit_id = self.next_u8();
         println!("status: Bit test - bit: {:02x} out: {:?}", bit_id, o);
     }
 
-    fn set<O: Out8>(self, o: O) {
+    fn set<O: Out8>(&mut self, o: O) {
         let bit_id = self.next_u8();
         println!("status: Set bit - bit: {:02x} out: {:?}", bit_id, o);
     }
 
-    fn res<O: Out8>(self, o: O) {
+    fn res<O: Out8>(&mut self, o: O) {
         let bit_id = self.next_u8();
         println!("status: Reset bit - bit: {:02x} out: {:?}", bit_id, o);
     }
 
     // control
-    fn jp(self, cond: Cond) {
+    fn jp(&mut self, cond: Cond) {
         let dest = self.next_u16();
         println!("status: Jump - dest: {:04x} cond: {:?}", dest, cond);
     }
 
-    fn jp_hl(self) {
+    fn jp_hl(&mut self) {
         println!("status: Jump (HL)");
     }
 
-    fn jr(self, cond: Cond) {
+    fn jr(&mut self, cond: Cond) {
         let offset = self.next_u8();
         println!("status: Jump - dest: {:04x} cond: {:?}", self.regs.pc + offset as u16, cond);
     }
 
-    fn call(self, cond: Cond) {
+    fn call(&mut self, cond: Cond) {
         let dest = self.next_u16();
         println!("status: Call - dest: {:04x} cond: {:?}", dest, cond);
     }
 
-    fn rst(self, offset: u8) {
+    fn rst(&mut self, offset: u8) {
         println!("status: Reset - dest: {:04x}", offset);
     }
 
-    fn ret(self, cond: Cond) {
+    fn ret(&mut self, cond: Cond) {
         println!("status: Return - cond: {:?}", cond);
     }
 
-    fn reti(self) {
+    fn reti(&mut self) {
         println!("status: Return from Interrupt");
     }
 }
@@ -419,28 +422,28 @@ impl Cpu {
     }
 
     // Memory reading helper functions
-    fn read_u8(&self, addr: u16) -> u8 {
+    fn mem_read_u8(&self, addr: u16) -> u8 {
         self.memory.borrow().read_u8(addr)
     }
 
-    fn next_u8(&mut self) -> u8 {
-        let byte = self.read_u8(self.regs.pc);
+    fn mem_next_u8(&mut self) -> u8 {
+        let byte = self.mem_read_u8(self.regs.pc);
         self.regs.pc += 1;
         byte
     }
 
-    fn next_u16(&mut self) -> u16 {
-        let l = self.next_u8();
-        let h = self.next_u8();
+    fn mem_next_u16(&mut self) -> u16 {
+        let l = self.mem_next_u8();
+        let h = self.mem_next_u8();
         ((l as u16) << 8) | (h as u16)
     }
 
-    fn write_u8(&mut self, addr: u16, data: u8) {
-        self.memory.borrow().write_u8(addr, data);
+    fn mem_write_u8(&mut self, addr: u16, data: u8) {
+        self.memory.borrow_mut().write_u8(addr, data);
     }
     
-    fn write_u16(&mut self, addr: u16, data: u16) {
-        self.memory.borrow().write_u16(addr, data);
+    fn mem_write_u16(&mut self, addr: u16, data: u16) {
+        self.memory.borrow_mut().write_u16(addr, data);
     }
 
     // Some misc helper functions

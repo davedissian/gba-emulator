@@ -3,7 +3,6 @@ use std::cell::RefCell;
 
 use cpu::Cpu;
 use memory::Memory;
-use cartridge::Cartridge;
 
 pub struct Machine {
     cpu: Cpu,
