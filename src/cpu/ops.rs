@@ -3,6 +3,8 @@
     with the following alterations taken from gbspec.txt at:
     http://www.devrs.com/gb/files/gbspec.txt
 
+    Additionally, the following was used: http://marc.rawer.de/Gameboy/Docs/GBCPUman.pdf
+
     The following are added instructions:
 
         ADD  SP,nn             ;nn = signed byte
@@ -38,24 +40,41 @@ use std::fmt::Debug;
 use cpu::Cpu;
 use cpu::Cond;
 use cpu::Imm8;
+use cpu::Imm16;
 use cpu::IndirectAddr;
 use cpu::registers::Reg8::{
     A, B, C, D, E, F, H, L
 };
+use cpu::registers::Reg16::{
+    AF, BC, DE, HL, SP
+};
 
-// A trait which represents an instruction input (register/indirect/immediate)
 pub trait In8 : Debug {
     fn read(&self, cpu: &mut Cpu) -> u8;
 }
 
-// A trait which represents an instruction output (register/indirect)
 pub trait Out8 : Debug {
     fn write(&self, cpu: &mut Cpu, data: u8);
 }
 
+pub trait In16 : Debug {
+    fn read(&self, cpu: &mut Cpu) -> u16;
+}
+
+pub trait Out16 : Debug {
+    fn write(&self, cpu: &mut Cpu, data: u16);
+}
+
 pub trait CpuOps {
-    // 8-bit load
+    fn next_u8(self) -> u8;
+    fn next_u16(self) -> u16;
+    
+    // 8-bit and 16-bit load
     fn load<I: In8, O: Out8>(self, i: I, o: O);
+    fn load16<I: In16, O: Out16>(self, i: I, o: O);
+    fn load16_hlsp(self, i: Imm8); // Load SP + n into HL
+    fn push<I: In16>(self, i: I);
+    fn pop<O: Out16>(self, o: O);
     // 8-bit arithmetic
     fn add<I: In8>(self, i: I);
     fn adc<I: In8>(self, i: I);
@@ -65,28 +84,59 @@ pub trait CpuOps {
     fn xor<I: In8>(self, i: I);
     fn or<I: In8>(self, i: I);
     fn cp<I: In8>(self, i: I);
-    fn inc<I: In8>(self, i: I);
-    fn dec<I: In8>(self, i: I);
-    // control
-    fn jp(self, cond: Cond);        // JP n
-    fn jp_hl(self, cond: Cond);     // JP (HL)
-    fn jr(self, cond: Cond);
-    fn call(self, cond: Cond);
-    fn ret(self, cond: Cond);
-    fn reti(self);
+    fn inc<I: In8 + Out8>(self, i: I);
+    fn dec<I: In8 + Out8>(self, i: I);
+    // 16-bit arithmetic
+    fn add16<I: In16>(self, i: I);
+    fn add16_sp(self, i: Imm8);
+    fn inc16<I: In16 + Out16>(self, i: I);
+    fn dec16<I: In16 + Out16>(self, i: I);
     // misc
     fn nop(self);
     fn daa(self);
     fn cpl(self);
-    fn neg(self);
     fn ccf(self);
     fn scf(self);
+    fn halt(self);
+    fn stop(self);
+    fn ei(self);
+    fn di(self);
+    // rotate and shift
+    fn rrca(self);
+    fn rra(self);
+    fn rlc<I: In8 + Out8>(self, i: I);
+    fn rl<I: In8 + Out8>(self, i: I);
+    fn rrc<I: In8 + Out8>(self, i: I);
+    fn rr<I: In8 + Out8>(self, i: I);
+    fn sla<I: In8 + Out8>(self, i: I);
+    fn sra<I: In8 + Out8>(self, i: I);
+    fn swap<I: In8 + Out8>(self, i: I);
+    fn srl<I: In8 + Out8>(self, i: I);
+    // bit manipulation
+    fn bit<O: Out8>(self, o: O);
+    fn set<O: Out8>(self, o: O);
+    fn res<O: Out8>(self, o: O);
+    // control
+    fn jp(self, cond: Cond);        // JP n
+    fn jp_hl(self);                 // JP (HL)
+    fn jr(self, cond: Cond);
+    fn call(self, cond: Cond);
+    fn rst(self, offset: u8);
+    fn ret(self, cond: Cond);
+    fn reti(self);
 }
 
-// Take an op code, and run the relevant op command
-pub fn decode<O: CpuOps>(ops: O, opcode: u8) {
-    match opcode {
-        0x00 => ops.nop(),
+pub fn decode<O: CpuOps>(ops: O) {
+    let opcode = ops.next_u8();
+    match opcode { 
+        // 8-bit load
+        0x06 => ops.load(Imm8, B), 
+        0x0E => ops.load(Imm8, C), 
+        0x16 => ops.load(Imm8, D), 
+        0x1E => ops.load(Imm8, E), 
+        0x26 => ops.load(Imm8, H), 
+        0x2E => ops.load(Imm8, L), 
+        0x36 => ops.load(Imm8, IndirectAddr::HL),
 
         0x7F => ops.load(A, A),
         0x78 => ops.load(B, A),
@@ -98,8 +148,6 @@ pub fn decode<O: CpuOps>(ops: O, opcode: u8) {
         0x7E => ops.load(IndirectAddr::HL, A),
         0x0A => ops.load(IndirectAddr::BC, A),
         0x1A => ops.load(IndirectAddr::DE, A),
-        0xFD => panic!("Unhandled"),
-
         0x47 => ops.load(A, B),
         0x40 => ops.load(B, B),
         0x41 => ops.load(C, B),
@@ -108,7 +156,6 @@ pub fn decode<O: CpuOps>(ops: O, opcode: u8) {
         0x44 => ops.load(F, B),
         0x45 => ops.load(L, B),
         0x46 => ops.load(IndirectAddr::HL, B),
-
         0x4F => ops.load(A, C),
         0x48 => ops.load(B, C),
         0x49 => ops.load(C, C),
@@ -117,7 +164,6 @@ pub fn decode<O: CpuOps>(ops: O, opcode: u8) {
         0x4C => ops.load(F, C),
         0x4D => ops.load(L, C),
         0x4E => ops.load(IndirectAddr::HL, C),
-
         0x57 => ops.load(A, D),
         0x50 => ops.load(B, D),
         0x51 => ops.load(C, D),
@@ -126,7 +172,6 @@ pub fn decode<O: CpuOps>(ops: O, opcode: u8) {
         0x54 => ops.load(F, D),
         0x55 => ops.load(L, D),
         0x56 => ops.load(IndirectAddr::HL, D),
-
         0x5F => ops.load(A, E),
         0x58 => ops.load(B, E),
         0x59 => ops.load(C, E),
@@ -135,7 +180,6 @@ pub fn decode<O: CpuOps>(ops: O, opcode: u8) {
         0x5C => ops.load(F, E),
         0x5D => ops.load(L, E),
         0x5E => ops.load(IndirectAddr::HL, E),
-
         0x67 => ops.load(A, H),
         0x60 => ops.load(B, H),
         0x61 => ops.load(C, H),
@@ -144,7 +188,6 @@ pub fn decode<O: CpuOps>(ops: O, opcode: u8) {
         0x64 => ops.load(F, H),
         0x65 => ops.load(L, H),
         0x66 => ops.load(IndirectAddr::HL, H),
-
         0x6F => ops.load(A, L),
         0x68 => ops.load(B, L),
         0x69 => ops.load(C, L),
@@ -154,26 +197,10 @@ pub fn decode<O: CpuOps>(ops: O, opcode: u8) {
         0x6D => ops.load(L, L),
         0x6E => ops.load(IndirectAddr::HL, L),
 
-        // All these instructions are immediate addressing
-        /*
-        0xDD => {
-            let imm_addr = Imm(memory.read_u8(self.regs.pc + 2));
-            match opcode_bytes[1] {
-                0xD5 => ops.load(imm_addr, B),
-                0xDE => ops.load(imm_addr, C),
-                0x1B => ops.load(imm_addr, D),
-                0x1E => ops.load(imm_addr, E),
-                0x2B => ops.load(imm_addr, H),
-                0x36 => ops.load(imm_addr, L),
-                0x78 => ops.load(imm_addr, IndirectAddr::HL), // Indirect Destination
-                _ => panic!("Unknown opcode 0x{:02x}{:02x}", opcode_bytes[0], opcode_bytes[1])
-            };
-            3 // All consume 3 bytes
-        }
-        */
-
-        // Register Indirect Destination
+        0x02 => ops.load(A, IndirectAddr::BC),
+        0x12 => ops.load(A, IndirectAddr::DE),
         0x77 => ops.load(A, IndirectAddr::HL),
+        0xEA => ops.load(A, IndirectAddr::Imm16),
         0x70 => ops.load(B, IndirectAddr::HL),
         0x71 => ops.load(C, IndirectAddr::HL),
         0x72 => ops.load(D, IndirectAddr::HL),
@@ -181,26 +208,37 @@ pub fn decode<O: CpuOps>(ops: O, opcode: u8) {
         0x74 => ops.load(F, IndirectAddr::HL),
         0x75 => ops.load(L, IndirectAddr::HL),
 
-        0x02 => ops.load(A, IndirectAddr::BC),
+        0xF2 => ops.load(A, IndirectAddr::C),
+        0xE2 => ops.load(IndirectAddr::C, A),
 
-        0x12 => ops.load(A, IndirectAddr::DE),
+        0x3A => println!("warning: Unimplemented LDD A, (HL)"),
+        0x32 => println!("warning: Unimplemented LDD (HL), A"),
+        0x2A => println!("warning: Unimplemented LDI A, (HL)"),
+        0x22 => println!("warning: Unimplemented LDI (HL), A"),
+       
+        0xE0 => ops.load(A, IndirectAddr::Imm8),
+        0xF0 => ops.load(IndirectAddr::Imm8, A),
 
-        // External Address Destination
-        /*
-        0x32 => {
-            let ext_addr = Ext(memory.read_u16(self.regs.pc + 1));
-            ops.load(A, ext_addr);
-            3
-        },
-        */
+        // 16-bit load
+        0x01 => ops.load16(Imm16, BC),
+        0x11 => ops.load16(Imm16, DE),
+        0x21 => ops.load16(Imm16, HL),
+        0x31 => ops.load16(Imm16, SP),
+        0xF9 => ops.load16(HL, SP),
+        0xF8 => ops.load16_hlsp(Imm8),
+        0x08 => ops.load16(SP, IndirectAddr::Imm16),
 
-        // --------------------
+        0xF5 => ops.push(AF),
+        0xC5 => ops.push(BC),
+        0xD5 => ops.push(DE),
+        0xE5 => ops.push(HL),
 
+        0xF1 => ops.pop(AF),
+        0xC1 => ops.pop(BC),
+        0xD1 => ops.pop(DE),
+        0xE1 => ops.pop(HL),
 
-        // Arithmetic
-        // --------------------
-
-        // Add
+        // arithmetic
         0x87 => ops.add(A),
         0x80 => ops.add(B),
         0x81 => ops.add(C),
@@ -211,7 +249,6 @@ pub fn decode<O: CpuOps>(ops: O, opcode: u8) {
         0x86 => ops.add(IndirectAddr::HL),
         0xC6 => ops.add(Imm8),
 
-        // Add with Carry
         0x8F => ops.adc(A),
         0x88 => ops.adc(B),
         0x89 => ops.adc(C),
@@ -222,7 +259,6 @@ pub fn decode<O: CpuOps>(ops: O, opcode: u8) {
         0x8E => ops.adc(IndirectAddr::HL),
         0xCE => ops.adc(Imm8),
 
-        // Subtract
         0x97 => ops.sub(A),
         0x90 => ops.sub(B),
         0x91 => ops.sub(C),
@@ -233,7 +269,6 @@ pub fn decode<O: CpuOps>(ops: O, opcode: u8) {
         0x96 => ops.sub(IndirectAddr::HL),
         0xD6 => ops.sub(Imm8),
 
-        // Subtract with Carry
         0x9F => ops.sbc(A),
         0x98 => ops.sbc(B),
         0x99 => ops.sbc(C),
@@ -244,7 +279,6 @@ pub fn decode<O: CpuOps>(ops: O, opcode: u8) {
         0x9E => ops.sbc(IndirectAddr::HL),
         0xDE => ops.sbc(Imm8),
 
-        // AND
         0xA7 => ops.and(A),
         0xA0 => ops.and(B),
         0xA1 => ops.and(C),
@@ -255,7 +289,6 @@ pub fn decode<O: CpuOps>(ops: O, opcode: u8) {
         0xA6 => ops.and(IndirectAddr::HL),
         0xE6 => ops.and(Imm8),
 
-        // XOR
         0xAF => ops.xor(A),
         0xA8 => ops.xor(B),
         0xA9 => ops.xor(C),
@@ -266,7 +299,6 @@ pub fn decode<O: CpuOps>(ops: O, opcode: u8) {
         0xAE => ops.xor(IndirectAddr::HL),
         0xEE => ops.xor(Imm8),
 
-        // OR
         0xB7 => ops.or(A),
         0xB0 => ops.or(B),
         0xB1 => ops.or(C),
@@ -277,7 +309,6 @@ pub fn decode<O: CpuOps>(ops: O, opcode: u8) {
         0xB6 => ops.or(IndirectAddr::HL),
         0xF6 => ops.or(Imm8),
 
-        // Compare
         0xBF => ops.cp(A),
         0xB8 => ops.cp(B),
         0xB9 => ops.cp(C),
@@ -288,7 +319,6 @@ pub fn decode<O: CpuOps>(ops: O, opcode: u8) {
         0xBE => ops.cp(IndirectAddr::HL),
         0xFE => ops.cp(Imm8),
 
-        // Increment
         0x3C => ops.inc(A),
         0x04 => ops.inc(B),
         0x0C => ops.inc(C),
@@ -298,7 +328,6 @@ pub fn decode<O: CpuOps>(ops: O, opcode: u8) {
         0x2C => ops.inc(L),
         0x34 => ops.inc(IndirectAddr::HL),
 
-        // Decrement
         0x3D => ops.dec(A),
         0x05 => ops.dec(B),
         0x0D => ops.dec(C),
@@ -307,54 +336,185 @@ pub fn decode<O: CpuOps>(ops: O, opcode: u8) {
         0x25 => ops.dec(F),
         0x2D => ops.dec(L),
         0x35 => ops.dec(IndirectAddr::HL),
+        
+        0x09 => ops.add16(BC),
+        0x19 => ops.add16(DE),
+        0x29 => ops.add16(HL),
+        0x39 => ops.add16(SP),
+        0xE8 => ops.add16_sp(Imm8),
 
+        0x03 => ops.inc16(BC),
+        0x13 => ops.inc16(DE),
+        0x23 => ops.inc16(HL),
+        0x33 => ops.inc16(SP),
 
-        // --------------------
+        0x0B => ops.dec16(BC),
+        0x1B => ops.dec16(DE),
+        0x2B => ops.dec16(HL),
+        0x3B => ops.dec16(SP),
 
-        // 16-bit Arithmetic
-        // --------------------
+        // misc
+        0x27 => ops.daa(),
+        0x2F => ops.cpl(),
+        0x3F => ops.ccf(),
+        0x37 => ops.scf(),
+        0x00 => ops.nop(),
+        0x76 => ops.halt(),
+        0x10 => {
+            let next_opcode = ops.next_u8();
+            match next_opcode {
+                0x00 => ops.stop(),
+                _ => panic!("warning: Unknown opcode 0x10{:02x}", next_opcode) 
+            }
+        }
+        0xF3 => ops.di(),
+        0xFB => ops.ei(),
 
+        // rotates and shifts
+        0x0F => ops.rrca(),
+        0x1f => ops.rra(),
+        0xCB => {
+            let next_opcode = ops.next_u8();
+            match next_opcode {
+                0x07 => ops.rlc(A),
+                0x00 => ops.rlc(B),
+                0x01 => ops.rlc(C),
+                0x02 => ops.rlc(D),
+                0x03 => ops.rlc(E),
+                0x04 => ops.rlc(H),
+                0x05 => ops.rlc(L),
+                0x06 => ops.rlc(IndirectAddr::HL),
+                
+                0x17 => ops.rl(A),
+                0x10 => ops.rl(B),
+                0x11 => ops.rl(C),
+                0x12 => ops.rl(D),
+                0x13 => ops.rl(E),
+                0x14 => ops.rl(H),
+                0x15 => ops.rl(L),
+                0x16 => ops.rl(IndirectAddr::HL),
 
-        // TODO
+                0x0F => ops.rrc(A),
+                0x08 => ops.rrc(B),
+                0x09 => ops.rrc(C),
+                0x0A => ops.rrc(D),
+                0x0B => ops.rrc(E),
+                0x0C => ops.rrc(H),
+                0x0D => ops.rrc(L),
+                0x0E => ops.rrc(IndirectAddr::HL),
+                
+                0x1F => ops.rr(A),
+                0x18 => ops.rr(B),
+                0x19 => ops.rr(C),
+                0x1A => ops.rr(D),
+                0x1B => ops.rr(E),
+                0x1C => ops.rr(H),
+                0x1D => ops.rr(L),
+                0x1E => ops.rr(IndirectAddr::HL),
 
-        // --------------------
+                0x27 => ops.sla(A),
+                0x20 => ops.sla(B),
+                0x21 => ops.sla(C),
+                0x22 => ops.sla(D),
+                0x23 => ops.sla(E),
+                0x24 => ops.sla(H),
+                0x25 => ops.sla(L),
+                0x26 => ops.sla(IndirectAddr::HL),
 
+                0x2F => ops.sra(A),
+                0x28 => ops.sra(B),
+                0x29 => ops.sra(C),
+                0x2A => ops.sra(D),
+                0x2B => ops.sra(E),
+                0x2C => ops.sra(H),
+                0x2D => ops.sra(L),
+                0x2E => ops.sra(IndirectAddr::HL),
 
-        // Rotate and Shift
-        // --------------------
+                0x37 => ops.swap(A),
+                0x30 => ops.swap(B),
+                0x31 => ops.swap(C),
+                0x32 => ops.swap(D),
+                0x33 => ops.swap(E),
+                0x34 => ops.swap(H),
+                0x35 => ops.swap(L),
+                0x36 => ops.swap(IndirectAddr::HL),
 
-        // TODO
+                0x3F => ops.srl(A),
+                0x38 => ops.srl(B),
+                0x39 => ops.srl(C),
+                0x3A => ops.srl(D),
+                0x3B => ops.srl(E),
+                0x3C => ops.srl(H),
+                0x3D => ops.srl(L),
+                0x3E => ops.srl(IndirectAddr::HL),
 
-        // --------------------
+                // bit manipulation
+                0x47 => ops.bit(A),
+                0x40 => ops.bit(B),
+                0x41 => ops.bit(C),
+                0x42 => ops.bit(D),
+                0x43 => ops.bit(E),
+                0x44 => ops.bit(H),
+                0x45 => ops.bit(L),
+                0x46 => ops.bit(IndirectAddr::HL),
 
+                0xC7 => ops.set(A),
+                0xC0 => ops.set(B),
+                0xC1 => ops.set(C),
+                0xC2 => ops.set(D),
+                0xC3 => ops.set(E),
+                0xC4 => ops.set(H),
+                0xC5 => ops.set(L),
+                0xC6 => ops.set(IndirectAddr::HL),
 
-        // Bit Manipulation
-        // --------------------
+                0x87 => ops.res(A),
+                0x80 => ops.res(B),
+                0x81 => ops.res(C),
+                0x82 => ops.res(D),
+                0x83 => ops.res(E),
+                0x84 => ops.res(H),
+                0x85 => ops.res(L),
+                0x86 => ops.res(IndirectAddr::HL),
 
-        // TODO
+                _ => panic!("warning: Unknown opcode 0xCB{:02x}", next_opcode)
+            }
+        },
 
-        // --------------------
-
-
-        // Control
-        // --------------------
+        // control
         0xC3 => ops.jp(Cond::None),
-        0xDA => ops.jp(Cond::C),
-        0xD2 => ops.jp(Cond::NC),
-        0xCA => ops.jp(Cond::Z),
         0xC2 => ops.jp(Cond::NZ),
+        0xCA => ops.jp(Cond::Z),
+        0xD2 => ops.jp(Cond::NC),
+        0xDA => ops.jp(Cond::C),
+        0xEB => ops.jp_hl(),
+
         0x18 => ops.jr(Cond::None),
-        0xEB => ops.jp_hl(Cond::None),
+        0x20 => ops.jr(Cond::NZ),
+        0x28 => ops.jr(Cond::Z),
+        0x30 => ops.jr(Cond::NC),
+        0x38 => ops.jr(Cond::C),
+        
         0xCD => ops.call(Cond::None),
-        0xDC => ops.call(Cond::C),
-        0xD4 => ops.call(Cond::NC),
-        0xCC => ops.call(Cond::Z),
         0xC4 => ops.call(Cond::NZ),
+        0xCC => ops.call(Cond::Z),
+        0xD4 => ops.call(Cond::NC),
+        0xDC => ops.call(Cond::C),
+       
+        0xC7 => ops.rst(0x00),
+        0xCF => ops.rst(0x08),
+        0xD7 => ops.rst(0x10),
+        0xDF => ops.rst(0x18),
+        0xE7 => ops.rst(0x20),
+        0xEF => ops.rst(0x28),
+        0xF7 => ops.rst(0x30),
+        0xFF => ops.rst(0x38),
+
         0xC9 => ops.ret(Cond::None),
-        0xD8 => ops.ret(Cond::C),
-        0xD0 => ops.ret(Cond::NC),
-        0xC8 => ops.ret(Cond::Z),
         0xC0 => ops.ret(Cond::NZ),
+        0xC8 => ops.ret(Cond::Z),
+        0xD0 => ops.ret(Cond::NC),
+        0xD8 => ops.ret(Cond::C),
+        
         0xD9 => ops.reti(),
         
         _ => println!("warning: Unknown opcode 0x{:02x}", opcode)
