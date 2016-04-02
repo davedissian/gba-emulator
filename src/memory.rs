@@ -27,6 +27,17 @@ impl Memory {
         }
     }
 
+    pub fn new_blank() -> Memory {
+        Memory {
+            cartridge: Cartridge::new_blank(),
+            vram: [0u8; 8192],
+            bank: [0u8; 8192],
+            internal: [0u8; 8192],
+            oam: [0u8; 160],
+            ier: 0,
+        }
+    }
+
     // Memory Writing
     pub fn write_u8(&mut self, addr: u16, value: u8) {
         match addr {

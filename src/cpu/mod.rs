@@ -4,8 +4,8 @@ mod ops;
 use std::rc::Rc;
 use std::cell::RefCell;
 use memory::Memory;
-use cpu::registers::{Registers, Reg8, Reg16};
-use cpu::ops::{CpuOps, In8, Out8, In16, Out16};
+use cpu::registers::*;
+use cpu::ops::*;
 
 /*
     Instruction Layout
@@ -128,19 +128,19 @@ impl Out16 for Reg16 {
 
 // Immediate operand - a constant stored in the next byte
 #[derive(Debug)]
-pub struct Imm8;
+pub struct Imm8(u8);
 impl In8 for Imm8 {
-    fn read(&self, cpu: &mut Cpu) -> u8 {
-        cpu.mem_next_u8()
+    fn read(&self, _: &mut Cpu) -> u8 {
+        let Imm8(v) = *self; v
     }
 }
 
 // Immediate extended operand - a constant stored in the next two bytes
 #[derive(Debug)]
-pub struct Imm16;
+pub struct Imm16(u16);
 impl In16 for Imm16 {
-    fn read(&self, cpu: &mut Cpu) -> u16 {
-        cpu.mem_next_u16()
+    fn read(&self, _: &mut Cpu) -> u16 {
+        let Imm16(v) = *self; v
     }
 }
 
@@ -202,14 +202,17 @@ impl<'a> CpuOps for &'a mut Cpu {
 
     fn load<I: In8, O: Out8>(&mut self, i: I, o: O) {
         println!("status: Load - in: {:?} out: {:?}", i, o);
+        let value = i.read(self);
+        o.write(self, value);
     }
 
     fn load16<I: In16, O: Out16>(&mut self, i: I, o: O) {
         println!("status: Load - in: {:?} out: {:?}", i, o);
+        let value = i.read(self);
+        o.write(self, value);
     }
     
-    fn load16_hlsp(&mut self) {
-        let offset = self.next_u8() as i8;
+    fn load16_hlsp(&mut self, offset: i8) {
         println!("status: Load HL SP + {:?}", offset);
     }
     
@@ -465,5 +468,46 @@ impl Cpu {
         println!("- Add/Sub: {}", self.get_bit(self.regs.f as u16, 6));
         println!("- Half Carry: {}", self.get_bit(self.regs.f as u16, 5));
         println!("- Carry Flag {}", self.get_bit(self.regs.f as u16, 4));
+    }
+}
+
+// Test cases
+#[cfg(test)]
+mod test {
+    use std::rc::Rc;
+    use std::cell::RefCell;
+    use memory::Memory;
+    use super::*;
+    use cpu::registers::*;
+    use cpu::ops::*;
+
+    fn test_u8() -> u8 {
+        144u8
+    }
+
+    fn test_u16() -> u16 {
+        47628u16
+    }
+
+    fn init_cpu() -> Cpu {
+        Cpu::new(Rc::new(RefCell::new(Memory::new_blank())))
+    }
+
+    #[test]
+    fn load_from_reg_a_to_b() {
+        let mut cpu = &mut init_cpu();
+        cpu.load(Imm8(test_u8()), Reg8::A);
+        cpu.load(Reg8::A, Reg8::B);
+        assert_eq!(cpu.regs.a, test_u8());
+        assert_eq!(cpu.regs.a, cpu.regs.b);
+    }
+
+    #[test]
+    fn load_from_reg_bc_to_de() {
+        let mut cpu = &mut init_cpu();
+        cpu.load16(Imm16(test_u16()), Reg16::BC);
+        cpu.load16(Reg16::BC, Reg16::DE);
+        assert_eq!(Reg16::BC.read(cpu), test_u16());
+        assert_eq!(Reg16::BC.read(cpu), Reg16::DE.read(cpu));
     }
 }

@@ -7,6 +7,13 @@ pub struct Cartridge {
 }
 
 impl Cartridge {
+    pub fn new_blank() -> Cartridge {
+        Cartridge {
+            rom: vec!(),
+            title: String::new(),
+        }
+    }
+
     pub fn load(filename: &str) -> Result<Cartridge, String> {
         // Open a cartridge file
         let mut f = match File::open(filename) {

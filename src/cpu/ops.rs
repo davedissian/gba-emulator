@@ -42,12 +42,8 @@ use cpu::Cond;
 use cpu::Imm8;
 use cpu::Imm16;
 use cpu::IndirectAddr;
-use cpu::registers::Reg8::{
-    A, B, C, D, E, F, H, L
-};
-use cpu::registers::Reg16::{
-    AF, BC, DE, HL, SP
-};
+use cpu::registers::Reg8::*;
+use cpu::registers::Reg16::*;
 
 pub trait In8 : Debug {
     fn read(&self, cpu: &mut Cpu) -> u8;
@@ -72,7 +68,7 @@ pub trait CpuOps {
     // 8-bit and 16-bit load
     fn load<I: In8, O: Out8>(&mut self, i: I, o: O);
     fn load16<I: In16, O: Out16>(&mut self, i: I, o: O);
-    fn load16_hlsp(&mut self); // Load SP + n into HL
+    fn load16_hlsp(&mut self, offset: i8); // Load SP + n into HL
     fn push<I: In16>(&mut self, i: I);
     fn pop<O: Out16>(&mut self, o: O);
     // 8-bit arithmetic
@@ -126,17 +122,35 @@ pub trait CpuOps {
     fn reti(&mut self);
 }
 
+// These macros are required due to a bug in the Rust borrow checker which disallows a mutable
+// object 'foo' having two method calls in the same line. Eg:
+//  foo.method(foo.value());
+macro_rules! op1 {
+    ($ops: ident, $instr:ident, $a:expr) => ({
+        let temp = $a;
+        $ops.$instr(temp);
+    })
+}
+
+macro_rules! op2 {
+    ($ops: ident, $instr:ident, $a:expr, $b:expr) => ({
+        let temp_a = $a;
+        let temp_b = $b;
+        $ops.$instr(temp_a, temp_b);
+    })
+}
+
 pub fn decode<O: CpuOps>(mut ops: O) {
     let opcode = ops.next_u8();
     match opcode { 
         // 8-bit load
-        0x06 => ops.load(Imm8, B), 
-        0x0E => ops.load(Imm8, C), 
-        0x16 => ops.load(Imm8, D), 
-        0x1E => ops.load(Imm8, E), 
-        0x26 => ops.load(Imm8, H), 
-        0x2E => ops.load(Imm8, L), 
-        0x36 => ops.load(Imm8, IndirectAddr::HL),
+        0x06 => op2!(ops, load, Imm8(ops.next_u8()), B), 
+        0x0E => op2!(ops, load, Imm8(ops.next_u8()), C), 
+        0x16 => op2!(ops, load, Imm8(ops.next_u8()), D), 
+        0x1E => op2!(ops, load, Imm8(ops.next_u8()), E), 
+        0x26 => op2!(ops, load, Imm8(ops.next_u8()), H), 
+        0x2E => op2!(ops, load, Imm8(ops.next_u8()), L), 
+        0x36 => op2!(ops, load, Imm8(ops.next_u8()), IndirectAddr::HL),
 
         0x7F => ops.load(A, A),
         0x78 => ops.load(B, A),
@@ -220,12 +234,12 @@ pub fn decode<O: CpuOps>(mut ops: O) {
         0xF0 => ops.load(IndirectAddr::Imm8, A),
 
         // 16-bit load
-        0x01 => ops.load16(Imm16, BC),
-        0x11 => ops.load16(Imm16, DE),
-        0x21 => ops.load16(Imm16, HL),
-        0x31 => ops.load16(Imm16, SP),
+        0x01 => op2!(ops, load16, Imm16(ops.next_u16()), BC),
+        0x11 => op2!(ops, load16, Imm16(ops.next_u16()), DE),
+        0x21 => op2!(ops, load16, Imm16(ops.next_u16()), HL),
+        0x31 => op2!(ops, load16, Imm16(ops.next_u16()), SP),
         0xF9 => ops.load16(HL, SP),
-        0xF8 => ops.load16_hlsp(),
+        0xF8 => op1!(ops, load16_hlsp, ops.next_u8() as i8),
         0x08 => ops.load16(SP, IndirectAddr::Imm16),
 
         0xF5 => ops.push(AF),
@@ -247,7 +261,7 @@ pub fn decode<O: CpuOps>(mut ops: O) {
         0x84 => ops.add(F),
         0x85 => ops.add(L),
         0x86 => ops.add(IndirectAddr::HL),
-        0xC6 => ops.add(Imm8),
+        0xC6 => op1!(ops, add, Imm8(ops.next_u8())),
 
         0x8F => ops.adc(A),
         0x88 => ops.adc(B),
@@ -257,7 +271,7 @@ pub fn decode<O: CpuOps>(mut ops: O) {
         0x8C => ops.adc(F),
         0x8D => ops.adc(L),
         0x8E => ops.adc(IndirectAddr::HL),
-        0xCE => ops.adc(Imm8),
+        0xCE => op1!(ops, adc, Imm8(ops.next_u8())),
 
         0x97 => ops.sub(A),
         0x90 => ops.sub(B),
@@ -267,7 +281,7 @@ pub fn decode<O: CpuOps>(mut ops: O) {
         0x94 => ops.sub(F),
         0x95 => ops.sub(L),
         0x96 => ops.sub(IndirectAddr::HL),
-        0xD6 => ops.sub(Imm8),
+        0xD6 => op1!(ops, sub, Imm8(ops.next_u8())),
 
         0x9F => ops.sbc(A),
         0x98 => ops.sbc(B),
@@ -277,7 +291,7 @@ pub fn decode<O: CpuOps>(mut ops: O) {
         0x9C => ops.sbc(F),
         0x9D => ops.sbc(L),
         0x9E => ops.sbc(IndirectAddr::HL),
-        0xDE => ops.sbc(Imm8),
+        0xDE => op1!(ops, sbc, Imm8(ops.next_u8())),
 
         0xA7 => ops.and(A),
         0xA0 => ops.and(B),
@@ -287,7 +301,7 @@ pub fn decode<O: CpuOps>(mut ops: O) {
         0xA4 => ops.and(F),
         0xA5 => ops.and(L),
         0xA6 => ops.and(IndirectAddr::HL),
-        0xE6 => ops.and(Imm8),
+        0xE6 => op1!(ops, and, Imm8(ops.next_u8())),
 
         0xAF => ops.xor(A),
         0xA8 => ops.xor(B),
@@ -297,7 +311,7 @@ pub fn decode<O: CpuOps>(mut ops: O) {
         0xAC => ops.xor(F),
         0xAD => ops.xor(L),
         0xAE => ops.xor(IndirectAddr::HL),
-        0xEE => ops.xor(Imm8),
+        0xEE => op1!(ops, xor, Imm8(ops.next_u8())),
 
         0xB7 => ops.or(A),
         0xB0 => ops.or(B),
@@ -307,7 +321,7 @@ pub fn decode<O: CpuOps>(mut ops: O) {
         0xB4 => ops.or(F),
         0xB5 => ops.or(L),
         0xB6 => ops.or(IndirectAddr::HL),
-        0xF6 => ops.or(Imm8),
+        0xF6 => op1!(ops, or, Imm8(ops.next_u8())),
 
         0xBF => ops.cp(A),
         0xB8 => ops.cp(B),
@@ -317,7 +331,7 @@ pub fn decode<O: CpuOps>(mut ops: O) {
         0xBC => ops.cp(F),
         0xBD => ops.cp(L),
         0xBE => ops.cp(IndirectAddr::HL),
-        0xFE => ops.cp(Imm8),
+        0xFE => op1!(ops, cp, Imm8(ops.next_u8())),
 
         0x3C => ops.inc(A),
         0x04 => ops.inc(B),
@@ -341,7 +355,7 @@ pub fn decode<O: CpuOps>(mut ops: O) {
         0x19 => ops.add16(DE),
         0x29 => ops.add16(HL),
         0x39 => ops.add16(SP),
-        0xE8 => ops.add16_sp(Imm8),
+        0xE8 => op1!(ops, add16_sp, Imm8(ops.next_u8())),
 
         0x03 => ops.inc16(BC),
         0x13 => ops.inc16(DE),
