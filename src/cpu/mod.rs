@@ -450,11 +450,11 @@ impl Cpu {
     }
 
     // Some misc helper functions
-    fn get_bits(&self, number: u16, min: u16, max: u16) -> u16 {
-        (number >> min) & ((max - min) - 1)
+    fn get_bits(number: u16, min: u16, max: u16) -> u16 {
+        (number >> min) & (2 << (max - min + 1) - 1)
     }
 
-    fn get_bit(&self, number: u16, bit: u16) -> u16 {
+    fn get_bit(number: u16, bit: u16) -> u16 {
         (number >> bit) & 0x1
     }
 
@@ -464,10 +464,10 @@ impl Cpu {
         println!("- A: {:02x} F: {:02x} B: {:02x} C: {:02x}", self.regs.a, self.regs.f, self.regs.b, self.regs.c);
         println!("- D: {:02x} E: {:02x} H: {:02x} L: {:02x}", self.regs.d, self.regs.e, self.regs.h, self.regs.l);
         println!("Flags:");
-        println!("- Zero: {}", self.get_bit(self.regs.f as u16, 7));
-        println!("- Add/Sub: {}", self.get_bit(self.regs.f as u16, 6));
-        println!("- Half Carry: {}", self.get_bit(self.regs.f as u16, 5));
-        println!("- Carry Flag {}", self.get_bit(self.regs.f as u16, 4));
+        println!("- Zero: {}", Cpu::get_bit(self.regs.f as u16, 7));
+        println!("- Add/Sub: {}", Cpu::get_bit(self.regs.f as u16, 6));
+        println!("- Half Carry: {}", Cpu::get_bit(self.regs.f as u16, 5));
+        println!("- Carry Flag {}", Cpu::get_bit(self.regs.f as u16, 4));
     }
 }
 
@@ -493,6 +493,19 @@ mod test {
         Cpu::new(Rc::new(RefCell::new(Memory::new_blank())))
     }
 
+    // Test CPU helper functions
+    #[test]
+    fn select_2nd_bit() {
+        assert_eq!(Cpu::get_bit(0b00010010, 1), 1);
+        assert_eq!(Cpu::get_bit(0b00010010, 2), 0);
+    }
+
+    #[test]
+    fn select_sequence() {
+        assert_eq!(Cpu::get_bits(0b01110000, 4, 6), 0b111);
+    }
+
+    // Test instructions
     #[test]
     fn load_from_reg_a_to_b() {
         let mut cpu = &mut init_cpu();
