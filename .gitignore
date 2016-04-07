@@ -1,3 +1,7 @@
+*.sublime*
+roms/*
+!roms/README.md
+
 # Compiled files
 *.o
 *.so
