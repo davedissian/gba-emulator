@@ -113,10 +113,10 @@ pub trait CpuOps {
     fn set<O: Out8>(&mut self, bit_id: u8, o: O);
     fn res<O: Out8>(&mut self, bit_id: u8, o: O);
     // control
-    fn jp(&mut self, cond: Cond);        // JP n
-    fn jp_hl(&mut self);                 // JP (HL)
-    fn jr(&mut self, cond: Cond);
-    fn call(&mut self, cond: Cond);
+    fn jp(&mut self, dest: u16, cond: Cond);        // JP n
+    fn jp_hl(&mut self);                            // JP (HL)
+    fn jr(&mut self, offset: u8, cond: Cond);       // TODO(David): is this a signed offset?
+    fn call(&mut self, dest: u16, cond: Cond);
     fn rst(&mut self, offset: u8);
     fn ret(&mut self, cond: Cond);
     fn reti(&mut self);
@@ -495,24 +495,24 @@ pub fn decode<O: CpuOps>(mut ops: O) {
         },
 
         // control
-        0xC3 => ops.jp(Cond::None),
-        0xC2 => ops.jp(Cond::NZ),
-        0xCA => ops.jp(Cond::Z),
-        0xD2 => ops.jp(Cond::NC),
-        0xDA => ops.jp(Cond::C),
+        0xC3 => op2!(ops, jp, ops.next_u16(), Cond::None),
+        0xC2 => op2!(ops, jp, ops.next_u16(), Cond::NZ),
+        0xCA => op2!(ops, jp, ops.next_u16(), Cond::Z),
+        0xD2 => op2!(ops, jp, ops.next_u16(), Cond::NC),
+        0xDA => op2!(ops, jp, ops.next_u16(), Cond::C),
         0xE9 => ops.jp_hl(),
 
-        0x18 => ops.jr(Cond::None),
-        0x20 => ops.jr(Cond::NZ),
-        0x28 => ops.jr(Cond::Z),
-        0x30 => ops.jr(Cond::NC),
-        0x38 => ops.jr(Cond::C),
+        0x18 => op2!(ops, jr, ops.next_u8(), Cond::None),
+        0x20 => op2!(ops, jr, ops.next_u8(), Cond::NZ),
+        0x28 => op2!(ops, jr, ops.next_u8(), Cond::Z),
+        0x30 => op2!(ops, jr, ops.next_u8(), Cond::NC),
+        0x38 => op2!(ops, jr, ops.next_u8(), Cond::C),
         
-        0xCD => ops.call(Cond::None),
-        0xC4 => ops.call(Cond::NZ),
-        0xCC => ops.call(Cond::Z),
-        0xD4 => ops.call(Cond::NC),
-        0xDC => ops.call(Cond::C),
+        0xCD => op2!(ops, call, ops.next_u16(), Cond::None),
+        0xC4 => op2!(ops, call, ops.next_u16(), Cond::NZ),
+        0xCC => op2!(ops, call, ops.next_u16(), Cond::Z),
+        0xD4 => op2!(ops, call, ops.next_u16(), Cond::NC),
+        0xDC => op2!(ops, call, ops.next_u16(), Cond::C),
        
         0xC7 => ops.rst(0x00),
         0xCF => ops.rst(0x08),

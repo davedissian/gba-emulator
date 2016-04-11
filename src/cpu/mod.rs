@@ -370,8 +370,7 @@ impl<'a> CpuOps for &'a mut Cpu {
     }
 
     // control
-    fn jp(&mut self, cond: Cond) {
-        let dest = self.next_u16();
+    fn jp(&mut self, dest: u16, cond: Cond) {
         println!("status: Jump - dest: {:04x} cond: {:?}", dest, cond);
     }
 
@@ -379,13 +378,11 @@ impl<'a> CpuOps for &'a mut Cpu {
         println!("status: Jump (HL)");
     }
 
-    fn jr(&mut self, cond: Cond) {
-        let offset = self.next_u8();
+    fn jr(&mut self, offset: u8, cond: Cond) {
         println!("status: Jump - dest: {:04x} cond: {:?}", self.regs.pc + offset as u16, cond);
     }
 
-    fn call(&mut self, cond: Cond) {
-        let dest = self.next_u16();
+    fn call(&mut self, dest: u16, cond: Cond) {
         println!("status: Call - dest: {:04x} cond: {:?}", dest, cond);
     }
 
