@@ -149,8 +149,8 @@ impl In16 for Imm16 {
 enum IndirectAddr {
     BC, DE, HL,     // (BC/DE/HL)
     C,              // (FF00 + C)
-    Imm8,           // (FF00 + n)
-    Imm16,          // (nn)
+    Imm8(u8),       // (FF00 + n)
+    Imm16(u16),     // (nn)
 }
 
 impl In8 for IndirectAddr {
@@ -160,8 +160,8 @@ impl In8 for IndirectAddr {
             IndirectAddr::DE => read_reg_pair!(cpu.regs.d, cpu.regs.e),
             IndirectAddr::HL => read_reg_pair!(cpu.regs.h, cpu.regs.l),
             IndirectAddr::C => cpu.regs.c as u16 + 0xFF00,
-            IndirectAddr::Imm8 => cpu.mem_next_u8() as u16 + 0xFF00,
-            IndirectAddr::Imm16 => cpu.mem_next_u16()
+            IndirectAddr::Imm8(n) => n as u16 + 0xFF00,
+            IndirectAddr::Imm16(n) => n
         };
         cpu.mem_read_u8(addr)
     }
@@ -174,8 +174,8 @@ impl Out8 for IndirectAddr {
             IndirectAddr::DE => read_reg_pair!(cpu.regs.d, cpu.regs.e),
             IndirectAddr::HL => read_reg_pair!(cpu.regs.h, cpu.regs.l),
             IndirectAddr::C => cpu.regs.c as u16 + 0xFF00,
-            IndirectAddr::Imm8 => cpu.mem_next_u8() as u16 + 0xFF00,
-            IndirectAddr::Imm16 => cpu.mem_next_u16()
+            IndirectAddr::Imm8(n) => n as u16 + 0xFF00,
+            IndirectAddr::Imm16(n) => n
         };
         cpu.mem_write_u8(addr, data);
     }
@@ -188,8 +188,8 @@ impl Out16 for IndirectAddr {
             IndirectAddr::DE => read_reg_pair!(cpu.regs.d, cpu.regs.e),
             IndirectAddr::HL => read_reg_pair!(cpu.regs.h, cpu.regs.l),
             IndirectAddr::C => cpu.regs.c as u16 + 0xFF00,
-            IndirectAddr::Imm8 => cpu.mem_next_u8() as u16 + 0xFF00,
-            IndirectAddr::Imm16 => cpu.mem_next_u16()
+            IndirectAddr::Imm8(n) => n as u16 + 0xFF00,
+            IndirectAddr::Imm16(n) => n
         };
         cpu.mem_write_u16(addr, data);
     }

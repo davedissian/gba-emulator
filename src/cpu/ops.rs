@@ -214,7 +214,7 @@ pub fn decode<O: CpuOps>(mut ops: O) {
         0x02 => ops.load(A, IndirectAddr::BC),
         0x12 => ops.load(A, IndirectAddr::DE),
         0x77 => ops.load(A, IndirectAddr::HL),
-        0xEA => ops.load(A, IndirectAddr::Imm16),
+        0xEA => op2!(ops, load, A, IndirectAddr::Imm16(ops.next_u16())),
         0x70 => ops.load(B, IndirectAddr::HL),
         0x71 => ops.load(C, IndirectAddr::HL),
         0x72 => ops.load(D, IndirectAddr::HL),
@@ -230,8 +230,8 @@ pub fn decode<O: CpuOps>(mut ops: O) {
         0x2A => println!("warning: Unimplemented LDI A, (HL)"),
         0x22 => println!("warning: Unimplemented LDI (HL), A"),
        
-        0xE0 => ops.load(A, IndirectAddr::Imm8),
-        0xF0 => ops.load(IndirectAddr::Imm8, A),
+        0xE0 => op2!(ops, load, A, IndirectAddr::Imm8(ops.next_u8())),
+        0xF0 => op2!(ops, load, IndirectAddr::Imm8(ops.next_u8()), A),
 
         // 16-bit load
         0x01 => op2!(ops, load16, Imm16(ops.next_u16()), BC),
@@ -240,7 +240,7 @@ pub fn decode<O: CpuOps>(mut ops: O) {
         0x31 => op2!(ops, load16, Imm16(ops.next_u16()), SP),
         0xF9 => ops.load16(HL, SP),
         0xF8 => op1!(ops, load16_hlsp, ops.next_u8() as i8),
-        0x08 => ops.load16(SP, IndirectAddr::Imm16),
+        0x08 => op2!(ops, load16, SP, IndirectAddr::Imm16(ops.next_u16())),
 
         0xF5 => ops.push(AF),
         0xC5 => ops.push(BC),
