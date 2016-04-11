@@ -109,9 +109,9 @@ pub trait CpuOps {
     fn swap<I: In8 + Out8>(&mut self, i: I);
     fn srl<I: In8 + Out8>(&mut self, i: I);
     // bit manipulation
-    fn bit<O: Out8>(&mut self, o: O);
-    fn set<O: Out8>(&mut self, o: O);
-    fn res<O: Out8>(&mut self, o: O);
+    fn bit<O: Out8>(&mut self, bit_id: u8, o: O);
+    fn set<O: Out8>(&mut self, bit_id: u8, o: O);
+    fn res<O: Out8>(&mut self, bit_id: u8, o: O);
     // control
     fn jp(&mut self, cond: Cond);        // JP n
     fn jp_hl(&mut self);                 // JP (HL)
@@ -463,32 +463,32 @@ pub fn decode<O: CpuOps>(mut ops: O) {
                 0x3E => ops.srl(IndirectAddr::HL),
 
                 // bit manipulation
-                0x47 => ops.bit(A),
-                0x40 => ops.bit(B),
-                0x41 => ops.bit(C),
-                0x42 => ops.bit(D),
-                0x43 => ops.bit(E),
-                0x44 => ops.bit(H),
-                0x45 => ops.bit(L),
-                0x46 => ops.bit(IndirectAddr::HL),
+                0x47 => op2!(ops, bit, ops.next_u8(), A),
+                0x40 => op2!(ops, bit, ops.next_u8(), B),
+                0x41 => op2!(ops, bit, ops.next_u8(), C),
+                0x42 => op2!(ops, bit, ops.next_u8(), D),
+                0x43 => op2!(ops, bit, ops.next_u8(), E),
+                0x44 => op2!(ops, bit, ops.next_u8(), H),
+                0x45 => op2!(ops, bit, ops.next_u8(), L),
+                0x46 => op2!(ops, bit, ops.next_u8(), IndirectAddr::HL),
 
-                0xC7 => ops.set(A),
-                0xC0 => ops.set(B),
-                0xC1 => ops.set(C),
-                0xC2 => ops.set(D),
-                0xC3 => ops.set(E),
-                0xC4 => ops.set(H),
-                0xC5 => ops.set(L),
-                0xC6 => ops.set(IndirectAddr::HL),
+                0xC7 => op2!(ops, set, ops.next_u8(), A),
+                0xC0 => op2!(ops, set, ops.next_u8(), B),
+                0xC1 => op2!(ops, set, ops.next_u8(), C),
+                0xC2 => op2!(ops, set, ops.next_u8(), D),
+                0xC3 => op2!(ops, set, ops.next_u8(), E),
+                0xC4 => op2!(ops, set, ops.next_u8(), H),
+                0xC5 => op2!(ops, set, ops.next_u8(), L),
+                0xC6 => op2!(ops, set, ops.next_u8(), IndirectAddr::HL),
 
-                0x87 => ops.res(A),
-                0x80 => ops.res(B),
-                0x81 => ops.res(C),
-                0x82 => ops.res(D),
-                0x83 => ops.res(E),
-                0x84 => ops.res(H),
-                0x85 => ops.res(L),
-                0x86 => ops.res(IndirectAddr::HL),
+                0x87 => op2!(ops, res, ops.next_u8(), A),
+                0x80 => op2!(ops, res, ops.next_u8(), B),
+                0x81 => op2!(ops, res, ops.next_u8(), C),
+                0x82 => op2!(ops, res, ops.next_u8(), D),
+                0x83 => op2!(ops, res, ops.next_u8(), E),
+                0x84 => op2!(ops, res, ops.next_u8(), H),
+                0x85 => op2!(ops, res, ops.next_u8(), L),
+                0x86 => op2!(ops, res, ops.next_u8(), IndirectAddr::HL),
 
                 _ => panic!("warning: Unknown opcode 0xCB{:02x}", next_opcode)
             }

@@ -357,18 +357,15 @@ impl<'a> CpuOps for &'a mut Cpu {
     }
 
     // bit manipulation
-    fn bit<O: Out8>(&mut self, o: O) {
-        let bit_id = self.next_u8();
+    fn bit<O: Out8>(&mut self, bit_id: u8, o: O) {
         println!("status: Bit test - bit: {:02x} out: {:?}", bit_id, o);
     }
 
-    fn set<O: Out8>(&mut self, o: O) {
-        let bit_id = self.next_u8();
+    fn set<O: Out8>(&mut self, bit_id: u8, o: O) {
         println!("status: Set bit - bit: {:02x} out: {:?}", bit_id, o);
     }
 
-    fn res<O: Out8>(&mut self, o: O) {
-        let bit_id = self.next_u8();
+    fn res<O: Out8>(&mut self, bit_id: u8, o: O) {
         println!("status: Reset bit - bit: {:02x} out: {:?}", bit_id, o);
     }
 
