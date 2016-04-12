@@ -32,6 +32,11 @@ pub enum Reg16 {
     AF, BC, DE, HL, SP, PC
 }
 
+#[derive(Debug)]
+pub enum Flag {
+    Z, N, H, C
+}
+
 impl Registers {
     pub fn new() -> Registers {
         Registers {
@@ -46,5 +51,76 @@ impl Registers {
             sp: 0,
             pc: 0
         }
+    }
+
+    fn select_flag(f: Flag) -> u8 {
+        match f {
+            Flag::Z => 7,
+            Flag::N => 6,
+            Flag::H => 5,
+            Flag::C => 4
+        }
+    }
+
+    pub fn get_flag(&self, f: Flag) -> bool {
+        ((self.f >> Registers::select_flag(f)) & 1) == 1
+    }
+
+    pub fn set_flag(&mut self, f: Flag) {
+        self.f |= 1 << Registers::select_flag(f);
+    }
+
+    pub fn reset_flag(&mut self, f: Flag) {
+        self.f &= !(1 << Registers::select_flag(f));
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn set_z_flag() {
+        let mut r = Registers::new();
+        r.set_flag(Flag::Z);
+        assert_eq!(r.f, 0b10000000)
+    }
+
+    #[test]
+    fn set_n_flag() {
+        let mut r = Registers::new();
+        r.set_flag(Flag::N);
+        assert_eq!(r.f, 0b01000000)
+    }
+
+    #[test]
+    fn set_h_flag() {
+        let mut r = Registers::new();
+        r.set_flag(Flag::H);
+        assert_eq!(r.f, 0b00100000)
+    }
+
+    #[test]
+    fn set_c_flag() {
+        let mut r = Registers::new();
+        r.set_flag(Flag::C);
+        assert_eq!(r.f, 0b00010000)
+    }
+
+    #[test]
+    fn reset_c_flag_only() {
+        let mut r = Registers::new();
+        r.f = 0b00010000;
+        r.reset_flag(Flag::C);
+        assert_eq!(r.f, 0b00000000)
+    }
+
+    #[test]
+    fn reset_z_and_c_flag_with_all_set() {
+        let mut r = Registers::new();
+        r.f = 0b11010000;
+        r.reset_flag(Flag::Z);
+        r.reset_flag(Flag::C);
+        assert_eq!(r.f, 0b01000000)
     }
 }
