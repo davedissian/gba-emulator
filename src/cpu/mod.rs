@@ -195,21 +195,19 @@ impl Out16 for IndirectAddr {
     }
 }
 
-// Interpreter implementation of the CPU ops defined in the ops module
+// CpuOps implementation which prints the output
+// TODO(David): This depends on next_* being refactored out of CpuOps
+/*
 impl<'a> CpuOps for &'a mut Cpu {
     fn next_u8(&mut self) -> u8 { self.mem_next_u8() }
     fn next_u16(&mut self) -> u16 { self.mem_next_u16() }
 
     fn load<I: In8, O: Out8>(&mut self, i: I, o: O) {
         println!("status: Load - in: {:?} out: {:?}", i, o);
-        let value = i.read(self);
-        o.write(self, value);
     }
 
     fn load16<I: In16, O: Out16>(&mut self, i: I, o: O) {
         println!("status: Load - in: {:?} out: {:?}", i, o);
-        let value = i.read(self);
-        o.write(self, value);
     }
     
     fn load16_hlsp(&mut self, offset: i8) {
@@ -398,6 +396,164 @@ impl<'a> CpuOps for &'a mut Cpu {
         println!("status: Return from Interrupt");
     }
 }
+*/
+
+// Interpreter implementation of the CPU ops defined in the ops module
+impl<'a> CpuOps for &'a mut Cpu {
+    fn next_u8(&mut self) -> u8 { self.mem_next_u8() }
+    fn next_u16(&mut self) -> u16 { self.mem_next_u16() }
+
+    fn load<I: In8, O: Out8>(&mut self, i: I, o: O) {
+        let value = i.read(self);
+        o.write(self, value);
+    }
+
+    fn load16<I: In16, O: Out16>(&mut self, i: I, o: O) {
+        let value = i.read(self);
+        o.write(self, value);
+    }
+    
+    fn load16_hlsp(&mut self, offset: i8) {
+    }
+    
+    fn push<I: In16>(&mut self, i: I) {
+    }
+
+    fn pop<O: Out16>(&mut self, o: O) {
+    }
+
+    fn add<I: In8>(&mut self, i: I) {
+    }
+
+    fn adc<I: In8>(&mut self, i: I) {
+    }
+
+    fn sub<I: In8>(&mut self, i: I) {
+    }
+
+    fn sbc<I: In8>(&mut self, i: I) {
+    }
+
+    fn and<I: In8>(&mut self, i: I) {
+    }
+
+    fn xor<I: In8>(&mut self, i: I) {
+    }
+
+    fn or<I: In8>(&mut self, i: I) {
+    }
+
+    fn cp<I: In8>(&mut self, i: I) {
+    }
+
+    fn inc<I: In8>(&mut self, i: I) {
+    }
+
+    fn dec<I: In8>(&mut self, i: I) {
+    }
+
+    fn add16<I: In16>(&mut self, i: I) {
+    }
+
+    fn add16_sp(&mut self, i: Imm8) {
+    }
+
+    fn inc16<I: In16 + Out16>(&mut self, i: I) {
+    }
+
+    fn dec16<I: In16 + Out16>(&mut self, i: I) {
+    }
+
+    // misc
+    fn nop(&mut self) {}
+    
+    fn daa(&mut self) {
+    }
+
+    fn cpl(&mut self) {
+    }
+
+    fn ccf(&mut self) {
+    }
+
+    fn scf(&mut self) {
+    }
+    
+    fn halt(&mut self) {
+    }
+
+    fn stop(&mut self) {
+    }
+    
+    fn ei(&mut self) {
+    }
+
+    fn di(&mut self) {
+    }
+
+    // rotate and shift
+    fn rrca(&mut self) {
+    }
+
+    fn rra(&mut self) {
+    }
+
+    fn rlc<I: In8 + Out8>(&mut self, i: I) {
+    }
+    
+    fn rl<I: In8 + Out8>(&mut self, i: I) {
+    }
+    
+    fn rrc<I: In8 + Out8>(&mut self, i: I) {
+    }
+    
+    fn rr<I: In8 + Out8>(&mut self, i: I) {
+    }
+    
+    fn sla<I: In8 + Out8>(&mut self, i: I) {
+    }
+    
+    fn sra<I: In8 + Out8>(&mut self, i: I) {
+    }
+
+    fn swap<I: In8 + Out8>(&mut self, i: I) {
+    }
+    
+    fn srl<I: In8 + Out8>(&mut self, i: I) {
+    }
+
+    // bit manipulation
+    fn bit<O: Out8>(&mut self, bit_id: u8, o: O) {
+    }
+
+    fn set<O: Out8>(&mut self, bit_id: u8, o: O) {
+    }
+
+    fn res<O: Out8>(&mut self, bit_id: u8, o: O) {
+    }
+
+    // control
+    fn jp(&mut self, dest: u16, cond: Cond) {
+    }
+
+    fn jp_hl(&mut self) {
+    }
+
+    fn jr(&mut self, offset: u8, cond: Cond) {
+    }
+
+    fn call(&mut self, dest: u16, cond: Cond) {
+    }
+
+    fn rst(&mut self, offset: u8) {
+    }
+
+    fn ret(&mut self, cond: Cond) {
+    }
+
+    fn reti(&mut self) {
+    }
+}
 
 impl Cpu {
     pub fn new(memory: Rc<RefCell<Memory>>) -> Cpu {
@@ -447,7 +603,7 @@ impl Cpu {
     fn get_bit(number: u16, bit: u16) -> u16 {
         (number >> bit) & 0x1
     }
-    
+
     fn get_bits(number: u16, min: u16, max: u16) -> u16 {
         (number >> min) & ((2 << max - min) - 1)
     }
