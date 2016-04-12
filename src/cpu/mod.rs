@@ -444,12 +444,12 @@ impl Cpu {
     }
 
     // Some misc helper functions
-    fn get_bits(number: u16, min: u16, max: u16) -> u16 {
-        (number >> min) & (2 << (max - min + 1) - 1)
-    }
-
     fn get_bit(number: u16, bit: u16) -> u16 {
         (number >> bit) & 0x1
+    }
+    
+    fn get_bits(number: u16, min: u16, max: u16) -> u16 {
+        (number >> min) & ((2 << max - min) - 1)
     }
 
     pub fn dump_state(&self) {
