@@ -41,6 +41,7 @@ use cpu::Cpu;
 use cpu::Cond;
 use cpu::Imm8;
 use cpu::Imm16;
+use cpu::Op8;
 use cpu::IndirectAddr;
 use cpu::registers::Reg8::*;
 use cpu::registers::Reg16::*;
@@ -64,7 +65,7 @@ pub trait Out16 : Debug {
 pub trait CpuOps {
     fn next_u8(&mut self) -> u8;
     fn next_u16(&mut self) -> u16;
-    
+
     // 8-bit and 16-bit load
     fn load<I: In8, O: Out8>(&mut self, i: I, o: O);
     fn load16<I: In16, O: Out16>(&mut self, i: I, o: O);
@@ -140,87 +141,102 @@ macro_rules! op2 {
     })
 }
 
+fn to_operand(operand: u8) -> Op8 {
+    match operand {
+        0x0 => Op8::Reg(B),
+        0x1 => Op8::Reg(C),
+        0x2 => Op8::Reg(D),
+        0x3 => Op8::Reg(E),
+        0x4 => Op8::Reg(F),
+        0x5 => Op8::Reg(L),
+        0x6 => Op8::Ind(IndirectAddr::HL),
+        0x7 => Op8::Reg(A),
+        _   => panic!("Invalid operand")
+    }
+}
+
+// Auxiliary macro for decoding instructions of the form:
+// | opcode(4) | SWITCH_BIT(1) | op(3)
+// Where the SWITCH_BIT decides which of the two instructions to call.
+//
+// These are relatively common, since operands are encoded in 3 bits (op),
+// so single-operand instructions only use up 8 mappings.
+// Since their opcodes are 4 bits, there are still 8 mappings, which are
+// shared with another instruction.
+macro_rules! decode_row {
+    ($opcode: expr, $ops: ident, $instr_set: ident, $instr_unset: ident) => ({
+        const SWITCH_BIT: u8 = 0x4;
+        let op = to_operand($opcode & 0x7 as u8);
+        if $opcode & SWITCH_BIT > 0 {
+            $ops.$instr_set(op);
+        } else {
+            $ops.$instr_unset(op);
+        }
+    })
+}
+
+// Auxiliary macro for decoding instructions of the form:
+// | opcode(2) | imm_op(3) | op(3)
+//
+// These happen a lot in the CB-prefixed instructions
+macro_rules! decode_cb_block {
+    ($opcode: expr, $ops: ident, $instr: ident) => ({
+        const OP: u8 = 0x7;
+        let op = to_operand($opcode & OP);
+        let imm_op = ($opcode >> 3) & OP;
+
+        $ops.$instr(imm_op, op);
+    })
+}
+
 pub fn decode<O: CpuOps>(mut ops: O) {
     let opcode = ops.next_u8();
-    match opcode { 
+    match opcode {
+        0x76 => ops.halt(),
+
+        // LD from register to register
+        // | 0 1 | op2(3) | op1(3)
+        0x40...0x7F => {
+            let op1 = to_operand(opcode & 0x7);
+            let op2 = to_operand((opcode >> 3) & 0x7);
+            ops.load(op1, op2);
+        }
+
+        // ADD and ADC
+        // | 1 0 0 0 | CARRY_BIT(1) | operand(3)
+        0x80...0x8F => decode_row!(opcode, ops, adc, add),
+
+        // SUB and SBC
+        // | 1 0 0 1 | CARRY_BIT(1) | operand(3)
+        0x90...0x9F => decode_row!(opcode, ops, sbc, sub),
+
+        // AND and XOR
+        // | 1 0 1 0 | XOR_BIT(1) | operand(3)
+        0xA0...0xAF => decode_row!(opcode, ops, xor, and),
+
+        // OR and CP
+        // | 1 0 1 1 | XOR_BIT(1) | operand(3)
+        0xB0...0xBF => decode_row!(opcode, ops, or, cp),
+
+        // RST
+        // | 1 1 | RST_TO(3) | 1 1 1
+        0xC0...0xFF if (opcode & 0x7 == 0x7) => ops.rst(opcode & 0x38),
+
         // 8-bit load
-        0x06 => op2!(ops, load, Imm8(ops.next_u8()), B), 
-        0x0E => op2!(ops, load, Imm8(ops.next_u8()), C), 
-        0x16 => op2!(ops, load, Imm8(ops.next_u8()), D), 
-        0x1E => op2!(ops, load, Imm8(ops.next_u8()), E), 
-        0x26 => op2!(ops, load, Imm8(ops.next_u8()), H), 
-        0x2E => op2!(ops, load, Imm8(ops.next_u8()), L), 
+        0x06 => op2!(ops, load, Imm8(ops.next_u8()), B),
+        0x0E => op2!(ops, load, Imm8(ops.next_u8()), C),
+        0x16 => op2!(ops, load, Imm8(ops.next_u8()), D),
+        0x1E => op2!(ops, load, Imm8(ops.next_u8()), E),
+        0x26 => op2!(ops, load, Imm8(ops.next_u8()), H),
+        0x2E => op2!(ops, load, Imm8(ops.next_u8()), L),
         0x36 => op2!(ops, load, Imm8(ops.next_u8()), IndirectAddr::HL),
 
-        0x7F => ops.load(A, A),
-        0x78 => ops.load(B, A),
-        0x79 => ops.load(C, A),
-        0x7A => ops.load(D, A),
-        0x7B => ops.load(E, A),
-        0x7C => ops.load(F, A),
-        0x7D => ops.load(L, A),
-        0x7E => ops.load(IndirectAddr::HL, A),
         0x0A => ops.load(IndirectAddr::BC, A),
         0x1A => ops.load(IndirectAddr::DE, A),
-        0x47 => ops.load(A, B),
-        0x40 => ops.load(B, B),
-        0x41 => ops.load(C, B),
-        0x42 => ops.load(D, B),
-        0x43 => ops.load(E, B),
-        0x44 => ops.load(F, B),
-        0x45 => ops.load(L, B),
-        0x46 => ops.load(IndirectAddr::HL, B),
-        0x4F => ops.load(A, C),
-        0x48 => ops.load(B, C),
-        0x49 => ops.load(C, C),
-        0x4A => ops.load(D, C),
-        0x4B => ops.load(E, C),
-        0x4C => ops.load(F, C),
-        0x4D => ops.load(L, C),
-        0x4E => ops.load(IndirectAddr::HL, C),
-        0x57 => ops.load(A, D),
-        0x50 => ops.load(B, D),
-        0x51 => ops.load(C, D),
-        0x52 => ops.load(D, D),
-        0x53 => ops.load(E, D),
-        0x54 => ops.load(F, D),
-        0x55 => ops.load(L, D),
-        0x56 => ops.load(IndirectAddr::HL, D),
-        0x5F => ops.load(A, E),
-        0x58 => ops.load(B, E),
-        0x59 => ops.load(C, E),
-        0x5A => ops.load(D, E),
-        0x5B => ops.load(E, E),
-        0x5C => ops.load(F, E),
-        0x5D => ops.load(L, E),
-        0x5E => ops.load(IndirectAddr::HL, E),
-        0x67 => ops.load(A, H),
-        0x60 => ops.load(B, H),
-        0x61 => ops.load(C, H),
-        0x62 => ops.load(D, H),
-        0x63 => ops.load(E, H),
-        0x64 => ops.load(F, H),
-        0x65 => ops.load(L, H),
-        0x66 => ops.load(IndirectAddr::HL, H),
-        0x6F => ops.load(A, L),
-        0x68 => ops.load(B, L),
-        0x69 => ops.load(C, L),
-        0x6A => ops.load(D, L),
-        0x6B => ops.load(E, L),
-        0x6C => ops.load(F, L),
-        0x6D => ops.load(L, L),
-        0x6E => ops.load(IndirectAddr::HL, L),
 
         0x02 => ops.load(A, IndirectAddr::BC),
         0x12 => ops.load(A, IndirectAddr::DE),
-        0x77 => ops.load(A, IndirectAddr::HL),
         0xEA => op2!(ops, load, A, IndirectAddr::Imm16(ops.next_u16())),
-        0x70 => ops.load(B, IndirectAddr::HL),
-        0x71 => ops.load(C, IndirectAddr::HL),
-        0x72 => ops.load(D, IndirectAddr::HL),
-        0x73 => ops.load(E, IndirectAddr::HL),
-        0x74 => ops.load(F, IndirectAddr::HL),
-        0x75 => ops.load(L, IndirectAddr::HL),
 
         0xF2 => ops.load(A, IndirectAddr::C),
         0xE2 => ops.load(IndirectAddr::C, A),
@@ -229,7 +245,7 @@ pub fn decode<O: CpuOps>(mut ops: O) {
         0x32 => println!("warning: Unimplemented LDD (HL), A"),
         0x2A => println!("warning: Unimplemented LDI A, (HL)"),
         0x22 => println!("warning: Unimplemented LDI (HL), A"),
-       
+
         0xE0 => op2!(ops, load, A, IndirectAddr::Imm8(ops.next_u8())),
         0xF0 => op2!(ops, load, IndirectAddr::Imm8(ops.next_u8()), A),
 
@@ -252,105 +268,36 @@ pub fn decode<O: CpuOps>(mut ops: O) {
         0xD1 => ops.pop(DE),
         0xE1 => ops.pop(HL),
 
-        // arithmetic
-        0x87 => ops.add(A),
-        0x80 => ops.add(B),
-        0x81 => ops.add(C),
-        0x82 => ops.add(D),
-        0x83 => ops.add(E),
-        0x84 => ops.add(F),
-        0x85 => ops.add(L),
-        0x86 => ops.add(IndirectAddr::HL),
         0xC6 => op1!(ops, add, Imm8(ops.next_u8())),
-
-        0x8F => ops.adc(A),
-        0x88 => ops.adc(B),
-        0x89 => ops.adc(C),
-        0x8A => ops.adc(D),
-        0x8B => ops.adc(E),
-        0x8C => ops.adc(F),
-        0x8D => ops.adc(L),
-        0x8E => ops.adc(IndirectAddr::HL),
         0xCE => op1!(ops, adc, Imm8(ops.next_u8())),
 
-        0x97 => ops.sub(A),
-        0x90 => ops.sub(B),
-        0x91 => ops.sub(C),
-        0x92 => ops.sub(D),
-        0x93 => ops.sub(E),
-        0x94 => ops.sub(F),
-        0x95 => ops.sub(L),
-        0x96 => ops.sub(IndirectAddr::HL),
         0xD6 => op1!(ops, sub, Imm8(ops.next_u8())),
-
-        0x9F => ops.sbc(A),
-        0x98 => ops.sbc(B),
-        0x99 => ops.sbc(C),
-        0x9A => ops.sbc(D),
-        0x9B => ops.sbc(E),
-        0x9C => ops.sbc(F),
-        0x9D => ops.sbc(L),
-        0x9E => ops.sbc(IndirectAddr::HL),
         0xDE => op1!(ops, sbc, Imm8(ops.next_u8())),
 
-        0xA7 => ops.and(A),
-        0xA0 => ops.and(B),
-        0xA1 => ops.and(C),
-        0xA2 => ops.and(D),
-        0xA3 => ops.and(E),
-        0xA4 => ops.and(F),
-        0xA5 => ops.and(L),
-        0xA6 => ops.and(IndirectAddr::HL),
         0xE6 => op1!(ops, and, Imm8(ops.next_u8())),
-
-        0xAF => ops.xor(A),
-        0xA8 => ops.xor(B),
-        0xA9 => ops.xor(C),
-        0xAA => ops.xor(D),
-        0xAB => ops.xor(E),
-        0xAC => ops.xor(F),
-        0xAD => ops.xor(L),
-        0xAE => ops.xor(IndirectAddr::HL),
         0xEE => op1!(ops, xor, Imm8(ops.next_u8())),
 
-        0xB7 => ops.or(A),
-        0xB0 => ops.or(B),
-        0xB1 => ops.or(C),
-        0xB2 => ops.or(D),
-        0xB3 => ops.or(E),
-        0xB4 => ops.or(F),
-        0xB5 => ops.or(L),
-        0xB6 => ops.or(IndirectAddr::HL),
         0xF6 => op1!(ops, or, Imm8(ops.next_u8())),
-
-        0xBF => ops.cp(A),
-        0xB8 => ops.cp(B),
-        0xB9 => ops.cp(C),
-        0xBA => ops.cp(D),
-        0xBB => ops.cp(E),
-        0xBC => ops.cp(F),
-        0xBD => ops.cp(L),
-        0xBE => ops.cp(IndirectAddr::HL),
         0xFE => op1!(ops, cp, Imm8(ops.next_u8())),
 
-        0x3C => ops.inc(A),
         0x04 => ops.inc(B),
         0x0C => ops.inc(C),
         0x14 => ops.inc(D),
         0x1C => ops.inc(E),
         0x24 => ops.inc(F),
         0x2C => ops.inc(L),
+        0x3C => ops.inc(A),
         0x34 => ops.inc(IndirectAddr::HL),
 
-        0x3D => ops.dec(A),
         0x05 => ops.dec(B),
         0x0D => ops.dec(C),
         0x15 => ops.dec(D),
         0x1D => ops.dec(E),
         0x25 => ops.dec(F),
         0x2D => ops.dec(L),
+        0x3D => ops.dec(A),
         0x35 => ops.dec(IndirectAddr::HL),
-        
+
         0x09 => ops.add16(BC),
         0x19 => ops.add16(DE),
         0x29 => ops.add16(HL),
@@ -373,12 +320,11 @@ pub fn decode<O: CpuOps>(mut ops: O) {
         0x3F => ops.ccf(),
         0x37 => ops.scf(),
         0x00 => ops.nop(),
-        0x76 => ops.halt(),
         0x10 => {
             let next_opcode = ops.next_u8();
             match next_opcode {
                 0x00 => ops.stop(),
-                _ => panic!("warning: Unknown opcode 0x10{:02x}", next_opcode) 
+                _ => panic!("warning: Unknown opcode 0x10{:02x}", next_opcode)
             }
         }
         0xF3 => ops.di(),
@@ -390,106 +336,13 @@ pub fn decode<O: CpuOps>(mut ops: O) {
         0xCB => {
             let next_opcode = ops.next_u8();
             match next_opcode {
-                0x07 => ops.rlc(A),
-                0x00 => ops.rlc(B),
-                0x01 => ops.rlc(C),
-                0x02 => ops.rlc(D),
-                0x03 => ops.rlc(E),
-                0x04 => ops.rlc(H),
-                0x05 => ops.rlc(L),
-                0x06 => ops.rlc(IndirectAddr::HL),
-                
-                0x17 => ops.rl(A),
-                0x10 => ops.rl(B),
-                0x11 => ops.rl(C),
-                0x12 => ops.rl(D),
-                0x13 => ops.rl(E),
-                0x14 => ops.rl(H),
-                0x15 => ops.rl(L),
-                0x16 => ops.rl(IndirectAddr::HL),
-
-                0x0F => ops.rrc(A),
-                0x08 => ops.rrc(B),
-                0x09 => ops.rrc(C),
-                0x0A => ops.rrc(D),
-                0x0B => ops.rrc(E),
-                0x0C => ops.rrc(H),
-                0x0D => ops.rrc(L),
-                0x0E => ops.rrc(IndirectAddr::HL),
-                
-                0x1F => ops.rr(A),
-                0x18 => ops.rr(B),
-                0x19 => ops.rr(C),
-                0x1A => ops.rr(D),
-                0x1B => ops.rr(E),
-                0x1C => ops.rr(H),
-                0x1D => ops.rr(L),
-                0x1E => ops.rr(IndirectAddr::HL),
-
-                0x27 => ops.sla(A),
-                0x20 => ops.sla(B),
-                0x21 => ops.sla(C),
-                0x22 => ops.sla(D),
-                0x23 => ops.sla(E),
-                0x24 => ops.sla(H),
-                0x25 => ops.sla(L),
-                0x26 => ops.sla(IndirectAddr::HL),
-
-                0x2F => ops.sra(A),
-                0x28 => ops.sra(B),
-                0x29 => ops.sra(C),
-                0x2A => ops.sra(D),
-                0x2B => ops.sra(E),
-                0x2C => ops.sra(H),
-                0x2D => ops.sra(L),
-                0x2E => ops.sra(IndirectAddr::HL),
-
-                0x37 => ops.swap(A),
-                0x30 => ops.swap(B),
-                0x31 => ops.swap(C),
-                0x32 => ops.swap(D),
-                0x33 => ops.swap(E),
-                0x34 => ops.swap(H),
-                0x35 => ops.swap(L),
-                0x36 => ops.swap(IndirectAddr::HL),
-
-                0x3F => ops.srl(A),
-                0x38 => ops.srl(B),
-                0x39 => ops.srl(C),
-                0x3A => ops.srl(D),
-                0x3B => ops.srl(E),
-                0x3C => ops.srl(H),
-                0x3D => ops.srl(L),
-                0x3E => ops.srl(IndirectAddr::HL),
-
-                // bit manipulation
-                0x47 => op2!(ops, bit, ops.next_u8(), A),
-                0x40 => op2!(ops, bit, ops.next_u8(), B),
-                0x41 => op2!(ops, bit, ops.next_u8(), C),
-                0x42 => op2!(ops, bit, ops.next_u8(), D),
-                0x43 => op2!(ops, bit, ops.next_u8(), E),
-                0x44 => op2!(ops, bit, ops.next_u8(), H),
-                0x45 => op2!(ops, bit, ops.next_u8(), L),
-                0x46 => op2!(ops, bit, ops.next_u8(), IndirectAddr::HL),
-
-                0xC7 => op2!(ops, set, ops.next_u8(), A),
-                0xC0 => op2!(ops, set, ops.next_u8(), B),
-                0xC1 => op2!(ops, set, ops.next_u8(), C),
-                0xC2 => op2!(ops, set, ops.next_u8(), D),
-                0xC3 => op2!(ops, set, ops.next_u8(), E),
-                0xC4 => op2!(ops, set, ops.next_u8(), H),
-                0xC5 => op2!(ops, set, ops.next_u8(), L),
-                0xC6 => op2!(ops, set, ops.next_u8(), IndirectAddr::HL),
-
-                0x87 => op2!(ops, res, ops.next_u8(), A),
-                0x80 => op2!(ops, res, ops.next_u8(), B),
-                0x81 => op2!(ops, res, ops.next_u8(), C),
-                0x82 => op2!(ops, res, ops.next_u8(), D),
-                0x83 => op2!(ops, res, ops.next_u8(), E),
-                0x84 => op2!(ops, res, ops.next_u8(), H),
-                0x85 => op2!(ops, res, ops.next_u8(), L),
-                0x86 => op2!(ops, res, ops.next_u8(), IndirectAddr::HL),
-
+                0x00...0x0F => decode_row!(next_opcode, ops, rrc, rlc),
+                0x10...0x1F => decode_row!(next_opcode, ops, rl, rr),
+                0x20...0x2F => decode_row!(next_opcode, ops, sla, sra),
+                0x30...0x3F => decode_row!(next_opcode, ops, srl, swap),
+                0x40...0x7F => decode_cb_block!(next_opcode, ops, bit),
+                0x80...0xBF => decode_cb_block!(next_opcode, ops, res),
+                0xC0...0xFF => decode_cb_block!(next_opcode, ops, set),
                 _ => panic!("warning: Unknown opcode 0xCB{:02x}", next_opcode)
             }
         },
@@ -507,30 +360,21 @@ pub fn decode<O: CpuOps>(mut ops: O) {
         0x28 => op2!(ops, jr, ops.next_u8(), Cond::Z),
         0x30 => op2!(ops, jr, ops.next_u8(), Cond::NC),
         0x38 => op2!(ops, jr, ops.next_u8(), Cond::C),
-        
+
         0xCD => op2!(ops, call, ops.next_u16(), Cond::None),
         0xC4 => op2!(ops, call, ops.next_u16(), Cond::NZ),
         0xCC => op2!(ops, call, ops.next_u16(), Cond::Z),
         0xD4 => op2!(ops, call, ops.next_u16(), Cond::NC),
         0xDC => op2!(ops, call, ops.next_u16(), Cond::C),
-       
-        0xC7 => ops.rst(0x00),
-        0xCF => ops.rst(0x08),
-        0xD7 => ops.rst(0x10),
-        0xDF => ops.rst(0x18),
-        0xE7 => ops.rst(0x20),
-        0xEF => ops.rst(0x28),
-        0xF7 => ops.rst(0x30),
-        0xFF => ops.rst(0x38),
 
         0xC9 => ops.ret(Cond::None),
         0xC0 => ops.ret(Cond::NZ),
         0xC8 => ops.ret(Cond::Z),
         0xD0 => ops.ret(Cond::NC),
         0xD8 => ops.ret(Cond::C),
-        
+
         0xD9 => ops.reti(),
-        
+
         _ => println!("warning: Unknown opcode 0x{:02x}", opcode)
     }
 }
