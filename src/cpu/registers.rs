@@ -66,6 +66,14 @@ impl Registers {
         ((self.f >> Registers::select_flag(f)) & 1) == 1
     }
 
+    pub fn update_flag(&mut self, f: Flag, v: bool) {
+        if v {
+            self.set_flag(f);
+        } else {
+            self.reset_flag(f);
+        }
+    }
+
     pub fn set_flag(&mut self, f: Flag) {
         self.f |= 1 << Registers::select_flag(f);
     }

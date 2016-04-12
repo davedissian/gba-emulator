@@ -399,6 +399,7 @@ impl<'a> CpuOps for &'a mut Cpu {
 */
 
 // Interpreter implementation of the CPU ops defined in the ops module
+#[allow(unused_variables)]
 impl<'a> CpuOps for &'a mut Cpu {
     fn next_u8(&mut self) -> u8 { self.mem_next_u8() }
     fn next_u16(&mut self) -> u16 { self.mem_next_u16() }
@@ -423,9 +424,28 @@ impl<'a> CpuOps for &'a mut Cpu {
     }
 
     fn add<I: In8>(&mut self, i: I) {
+        let result = (Reg8::A.read(self) as u16) + (i.read(self) as u16);
+        Reg8::A.write(self, result as u8);
+
+        // Update flags
+        self.regs.update_flag(Flag::Z, result == 0);
+        self.regs.reset_flag(Flag::N);
+        self.regs.update_flag(Flag::H, ((result >> 3) & 0x1) == 1);
+        self.regs.update_flag(Flag::C, ((result >> 7) & 0x1) == 1);
     }
 
     fn adc<I: In8>(&mut self, i: I) {
+        let result =
+            (Reg8::A.read(self) as u16) +
+            (i.read(self) as u16) +
+            if self.regs.get_flag(Flag::C) { 1 } else { 0 };
+        Reg8::A.write(self, result as u8);
+
+        // Update flags
+        self.regs.update_flag(Flag::Z, result == 0);
+        self.regs.reset_flag(Flag::N);
+        self.regs.update_flag(Flag::H, ((result >> 3) & 0x1) == 1);
+        self.regs.update_flag(Flag::C, ((result >> 7) & 0x1) == 1);
     }
 
     fn sub<I: In8>(&mut self, i: I) {
@@ -599,25 +619,16 @@ impl Cpu {
         self.memory.borrow_mut().write_u16(addr, data);
     }
 
-    // Some misc helper functions
-    fn get_bit(number: u16, bit: u16) -> u16 {
-        (number >> bit) & 0x1
-    }
-
-    fn get_bits(number: u16, min: u16, max: u16) -> u16 {
-        (number >> min) & ((2 << max - min) - 1)
-    }
-
     pub fn dump_state(&self) {
         println!("Registers:");
         println!("- PC: {:04x} SP: {:04x} ", self.regs.pc, self.regs.sp);
         println!("- A: {:02x} F: {:02x} B: {:02x} C: {:02x}", self.regs.a, self.regs.f, self.regs.b, self.regs.c);
         println!("- D: {:02x} E: {:02x} H: {:02x} L: {:02x}", self.regs.d, self.regs.e, self.regs.h, self.regs.l);
         println!("Flags:");
-        println!("- Zero: {}", Cpu::get_bit(self.regs.f as u16, 7));
-        println!("- Add/Sub: {}", Cpu::get_bit(self.regs.f as u16, 6));
-        println!("- Half Carry: {}", Cpu::get_bit(self.regs.f as u16, 5));
-        println!("- Carry Flag {}", Cpu::get_bit(self.regs.f as u16, 4));
+        println!("- Zero: {}", self.regs.get_flag(Flag::Z));
+        println!("- Add/Sub: {}", self.regs.get_flag(Flag::N));
+        println!("- Half Carry: {}", self.regs.get_flag(Flag::H));
+        println!("- Carry Flag {}", self.regs.get_flag(Flag::C));
     }
 }
 
@@ -643,19 +654,6 @@ mod test {
         Cpu::new(Rc::new(RefCell::new(Memory::new_blank())))
     }
 
-    // Test CPU helper functions
-    #[test]
-    fn select_2nd_bit() {
-        assert_eq!(Cpu::get_bit(0b00010010, 1), 1);
-        assert_eq!(Cpu::get_bit(0b00010010, 2), 0);
-    }
-
-    #[test]
-    fn select_sequence() {
-        assert_eq!(Cpu::get_bits(0b01110000, 4, 6), 0b111);
-    }
-
-    // Test instructions
     #[test]
     fn load_from_reg_a_to_b() {
         let mut cpu = &mut init_cpu();
