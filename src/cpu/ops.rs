@@ -103,7 +103,7 @@ pub enum Instruction {
     RRA,
     RRC(Op8),
     RRCA,
-    RST(u8),
+    RST(Op8),
     SBC(Op8),
     SCF,
     SET(u8, Op8),

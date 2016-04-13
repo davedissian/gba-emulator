@@ -149,7 +149,7 @@ impl In16 for Imm16 {
 }
 
 // Indirect Addressing
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum IndirectAddr {
     BC, DE, HL,     // (BC/DE/HL)
     C,              // (FF00 + C)
@@ -189,8 +189,7 @@ impl Out16 for IndirectAddr {
     }
 }
 
-// CpuOps implementation which prints the output
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum Op8 {
     Reg(Reg8),
     Ind(IndirectAddr),

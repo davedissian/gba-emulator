@@ -22,7 +22,7 @@ pub struct Registers {
     pub pc: u16     // Program Counter
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum Reg8 {
     A, F, B, C, D, E, H, L
 }
