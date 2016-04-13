@@ -1,11 +1,15 @@
 mod registers;
+
 mod ops;
+mod fetcher;
+mod decoder;
 
 use std::rc::Rc;
 use std::cell::RefCell;
 use memory::Memory;
 use cpu::registers::*;
 use cpu::ops::*;
+use cpu::fetcher::*;
 
 /*
     Instruction Layout
@@ -146,85 +150,64 @@ impl In16 for Imm16 {
 
 // Indirect Addressing
 #[derive(Debug)]
-enum IndirectAddr {
+pub enum IndirectAddr {
     BC, DE, HL,     // (BC/DE/HL)
     C,              // (FF00 + C)
     Imm8(u8),       // (FF00 + n)
     Imm16(u16),     // (nn)
 }
 
+fn get_address(cpu: &mut Cpu, a: &IndirectAddr) -> u16 {
+    match *a {
+        IndirectAddr::BC => read_reg_pair!(cpu.regs.b, cpu.regs.c),
+        IndirectAddr::DE => read_reg_pair!(cpu.regs.d, cpu.regs.e),
+        IndirectAddr::HL => read_reg_pair!(cpu.regs.h, cpu.regs.l),
+        IndirectAddr::C => cpu.regs.c as u16 + 0xFF00,
+        IndirectAddr::Imm8(n) => n as u16 + 0xFF00,
+        IndirectAddr::Imm16(n) => n
+    }
+}
+
 impl In8 for IndirectAddr {
     fn read(&self, cpu: &mut Cpu) -> u8 {
-        let addr = match *self {
-            IndirectAddr::BC => read_reg_pair!(cpu.regs.b, cpu.regs.c),
-            IndirectAddr::DE => read_reg_pair!(cpu.regs.d, cpu.regs.e),
-            IndirectAddr::HL => read_reg_pair!(cpu.regs.h, cpu.regs.l),
-            IndirectAddr::C => cpu.regs.c as u16 + 0xFF00,
-            IndirectAddr::Imm8(n) => n as u16 + 0xFF00,
-            IndirectAddr::Imm16(n) => n
-        };
+        let addr = get_address(cpu, self);
         cpu.mem_read_u8(addr)
     }
 }
 
 impl Out8 for IndirectAddr {
     fn write(&self, cpu: &mut Cpu, data: u8) {
-        let addr = match *self {
-            IndirectAddr::BC => read_reg_pair!(cpu.regs.b, cpu.regs.c),
-            IndirectAddr::DE => read_reg_pair!(cpu.regs.d, cpu.regs.e),
-            IndirectAddr::HL => read_reg_pair!(cpu.regs.h, cpu.regs.l),
-            IndirectAddr::C => cpu.regs.c as u16 + 0xFF00,
-            IndirectAddr::Imm8(n) => n as u16 + 0xFF00,
-            IndirectAddr::Imm16(n) => n
-        };
+        let addr = get_address(cpu, self);
         cpu.mem_write_u8(addr, data);
     }
 }
 
 impl Out16 for IndirectAddr {
     fn write(&self, cpu: &mut Cpu, data: u16) {
-        let addr = match *self {
-            IndirectAddr::BC => read_reg_pair!(cpu.regs.b, cpu.regs.c),
-            IndirectAddr::DE => read_reg_pair!(cpu.regs.d, cpu.regs.e),
-            IndirectAddr::HL => read_reg_pair!(cpu.regs.h, cpu.regs.l),
-            IndirectAddr::C => cpu.regs.c as u16 + 0xFF00,
-            IndirectAddr::Imm8(n) => n as u16 + 0xFF00,
-            IndirectAddr::Imm16(n) => n
-        };
+        let addr = get_address(cpu, self);
         cpu.mem_write_u16(addr, data);
     }
 }
 
 // CpuOps implementation which prints the output
 #[derive(Debug)]
-enum Op8 {
+pub enum Op8 {
     Reg(Reg8),
-    Ind(IndirectAddr)
+    Ind(IndirectAddr),
+    Imm(u8)
 }
 
-impl Out8 for Op8 {
-    fn write(&self, cpu: &mut Cpu, data: u8) {
-        match *self {
-            Op8::Reg(ref r) => r.write(cpu, data),
-            Op8::Ind(ref i) => (i as &Out8).write(cpu, data)
-        }
-    }
-}
-
-impl In8 for Op8 {
-    fn read(&self, cpu: &mut Cpu) -> u8 {
-        match *self {
-            Op8::Reg(ref r) => r.read(cpu),
-            Op8::Ind(ref i) => (i as &In8).read(cpu)
-        }
+impl Fetcher for Cpu {
+    fn fetch_word(&mut self) -> u8 {
+        let byte = self.mem_read_u8(self.regs.pc);
+        self.regs.pc += 1;
+        byte
     }
 }
 
 // Interpreter implementation of the CPU ops defined in the ops module
 #[allow(unused_variables)]
 impl<'a> CpuOps for &'a mut Cpu {
-    fn next_u8(&mut self) -> u8 { self.mem_next_u8() }
-    fn next_u16(&mut self) -> u16 { self.mem_next_u16() }
 
     fn load<I: In8, O: Out8>(&mut self, i: I, o: O) {
         let value = i.read(self);
@@ -477,7 +460,12 @@ impl Cpu {
     }
 
     pub fn tick(&mut self) {
-        ops::decode(&mut *self);
+
+        let instr = self.fetch_instr();
+
+        println!("{:?}", instr);
+
+        // TODO: implement execution
 
         // Stop execution for the lols
         if self.regs.pc > 256 {
@@ -491,21 +479,9 @@ impl Cpu {
         self.memory.borrow().read_u8(addr)
     }
 
-    fn mem_next_u8(&mut self) -> u8 {
-        let byte = self.mem_read_u8(self.regs.pc);
-        self.regs.pc += 1;
-        byte
-    }
-
     fn mem_read_u16(&self, addr: u16) -> u16 {
         let l = self.mem_read_u8(addr);
         let h = self.mem_read_u8(addr + 1);
-        ((l as u16) << 8) | (h as u16)
-    }
-
-    fn mem_next_u16(&mut self) -> u16 {
-        let l = self.mem_next_u8();
-        let h = self.mem_next_u8();
         ((l as u16) << 8) | (h as u16)
     }
 
@@ -539,6 +515,7 @@ mod test {
     use super::*;
     use cpu::registers::*;
     use cpu::ops::*;
+    use cpu::decoder;
 
     fn test_u8() -> u8 {
         144u8
@@ -550,6 +527,14 @@ mod test {
 
     fn init_cpu() -> Cpu {
         Cpu::new(Rc::new(RefCell::new(Memory::new_blank())))
+    }
+
+    // Panics if any of the isntructions is not handled in the decoder
+    #[test]
+    fn decode_totality() {
+        for code in 0x00..0xFF {
+            decoder::decode(code);
+        }
     }
 
     #[test]
