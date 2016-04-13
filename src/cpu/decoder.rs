@@ -139,16 +139,12 @@ pub fn decode(opcode: u8) -> Cont<Instruction> {
         // | 1 1 | RST_TO(3) | 1 1 1
         0xC0...0xFF if (opcode & 0x7 == 0x7) => Done(RST(opcode & 0x38)),
 
-        // 8-bit load
-        0x06 => instr!(LD Reg(B), I#),
-
-        0x0E => instr!(LD Reg(C), I#),
-        0x16 => instr!(LD Reg(D), I#),
-        0x1E => instr!(LD Reg(E), I#),
-        0x26 => instr!(LD Reg(H), I#),
-        0x2E => instr!(LD Reg(L), I#),
-        0x3E => instr!(LD Reg(L), I#),
-        0x36 => instr!(LD Ind(IndirectAddr::HL), I#),
+        // Load 8 bits
+        // | 0 0 | DEST(3)   | 1 1 0
+        0x06...0x3E if (opcode & 0x7 == 0x6) => {
+            let op = (opcode >> 3) & 0x7;
+            Partial8(Box::new(move |val| LD(to_operand(op), Imm(val))))
+        },
 
         0x0A => instr!(LD Reg(A), Ind(IndirectAddr::BC)),
         0x1A => instr!(LD Reg(A), Ind(IndirectAddr::DE)),
