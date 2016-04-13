@@ -415,12 +415,19 @@ impl<'a> CpuOps for &'a mut Cpu {
     }
     
     fn load16_hlsp(&mut self, offset: i8) {
+        let value = self.regs.sp + offset;
+        Reg16::HL.write(self, value);
     }
     
     fn push<I: In16>(&mut self, i: I) {
+        self.write_u16(self.regs.sp, i.read(self));
+        self.regs.sp -= 2;
     }
 
     fn pop<O: Out16>(&mut self, o: O) {
+        self.regs.sp += 2;
+        let value = self.read_u16(self.regs.sp);
+        o.write(self, value);
     }
 
     fn add<I: In8>(&mut self, i: I) {
