@@ -8,6 +8,7 @@ use cpu::ops::Cont::*;
 use cpu::ops::Instruction;
 use cpu::ops::Instruction::*;
 use cpu::registers::Reg8::*;
+use cpu::registers::Reg16;
 use cpu::registers::Reg16::*;
 use cpu::IndirectAddr;
 
@@ -37,7 +38,7 @@ macro_rules! instr {
         Done($mnem($op1))
     };
     ($mnem: ident $t: ident#, $op2: expr) => {
-        partial_type!($t)(Box::new(|addr| $mnem(imm_type!($t -> addr), $op2)))
+        partial_type!($t)(Box::new(move |addr| $mnem(imm_type!($t -> addr), $op2)))
     };
     ($mnem: ident $op1: expr, $t: ident#) => {
         partial_type!($t)(Box::new(move |addr| $mnem($op1, imm_type!($t -> addr))))
@@ -45,66 +46,6 @@ macro_rules! instr {
     ($mnem: ident $op1: expr, $op2: expr) => {
         Done($mnem($op1, $op2))
     };
-}
-
-// Auxiliary macro for decoding instructions of the form:
-// | opcode(2) | imm_op(3) | op(3)
-//
-// These happen a lot in the CB-prefixed instructions
-macro_rules! decode_cb_block {
-    ($opcode: expr, $instr: ident) => ({
-        const OP: u8 = 0x7;
-        let op = to_operand($opcode & OP);
-        let imm_op = ($opcode >> 3) & OP;
-        $instr(imm_op, op)
-    })
-}
-
-// Auxiliary macro for decoding instructions of the form:
-// | opcode(4) | SWITCH_BIT(1) | op(3)
-//
-// Where the SWITCH_BIT decides which of the two instructions to call.
-// These are relatively common, since operands are encoded in 3 bits (op),
-// so single-operand instructions only use up 8 mappings.
-// Since their opcodes are 4 bits, there are still 8 mappings, which are
-// shared with another instruction.
-macro_rules! decode_row {
-    ($opcode: expr, $instr_set: ident, $instr_unset: ident) => ({
-        const SWITCH_BIT: u8 = 0x4;
-        let op = to_operand($opcode & 0x7 as u8);
-        if $opcode & SWITCH_BIT > 0 {
-            $instr_set(op)
-        } else {
-            $instr_unset(op)
-        }
-    })
-}
-
-fn to_operand(operand: u8) -> Op8 {
-    match operand {
-        0x0 => Reg(B),
-        0x1 => Reg(C),
-        0x2 => Reg(D),
-        0x3 => Reg(E),
-        0x4 => Reg(F),
-        0x5 => Reg(L),
-        0x6 => Ind(IndirectAddr::HL),
-        0x7 => Reg(A),
-        _   => panic!("Invalid operand")
-    }
-}
-
-pub fn decode_cb(code: u8) -> Instruction {
-    match code {
-        0x00...0x0F => decode_row!(code, RRC, RLC),
-        0x10...0x1F => decode_row!(code, RL, RR),
-        0x20...0x2F => decode_row!(code, SLA, SRA),
-        0x30...0x3F => decode_row!(code, SRL, SWAP),
-        0x40...0x7F => decode_cb_block!(code, BIT),
-        0x80...0xBF => decode_cb_block!(code, RES),
-        0xC0...0xFF => decode_cb_block!(code, SET),
-        _ => panic!("warning: Unknown opcode 0xCB{:02x}", code)
-    }
 }
 
 // count the number of elements within square brackets
@@ -167,7 +108,7 @@ macro_rules! transform {
     ($op: expr, ([#$n: ident $size: expr] $($ts: tt)*) => $leaf: tt) => {{
         let shift = op_shift!($($ts)*);
         let mask  = ((1 << $size) - 1) << shift;
-        let $n = to_operand(($op & mask) >> shift);
+        let $n = ($op & mask) >> shift;
 
         transform!($op, ($($ts)*) => $leaf)
     }};
@@ -195,26 +136,107 @@ macro_rules! match_rule {
     }
 }
 
+fn reg8(operand: u8) -> Op8 {
+    match operand {
+        0x0 => Reg(B),
+        0x1 => Reg(C),
+        0x2 => Reg(D),
+        0x3 => Reg(E),
+        0x4 => Reg(F),
+        0x5 => Reg(L),
+        0x6 => Ind(IndirectAddr::HL),
+        0x7 => Reg(A),
+        _   => panic!("Invalid operand")
+    }
+}
+
+// PUSH and POP might use the AF register instead of SP
+// AF and SP are mutually exclusive for a given type of instruction
+fn reg16(operand: u8, has_af: bool) -> Reg16 {
+    match operand {
+         0x0 => BC,
+         0x1 => DE,
+         0x2 => HL,
+         0x3 if has_af => AF,
+         0x3 => SP,
+         _   => panic!("Invalid operand")
+    }
+}
+
+fn cond(operand: u8) -> Cond {
+    match operand {
+        0x0 => Cond::NZ,
+        0x1 => Cond::Z,
+        0x2 => Cond::NC,
+        0x3 => Cond::C,
+        _   => panic!("Invalid operand")
+    }
+}
+
+
+pub fn decode_cb(code: u8) -> Instruction {
+    let cont = match_rule!(code,
+        // | opcode(5) | op(3)
+        ([0,0,0,0,0] [#op 3]) => [RLC  reg8(op)],
+        ([0,0,0,0,1] [#op 3]) => [RRC  reg8(op)],
+        ([0,0,0,1,0] [#op 3]) => [RR   reg8(op)],
+        ([0,0,0,1,1] [#op 3]) => [RL   reg8(op)],
+        ([0,0,1,0,0] [#op 3]) => [SRA  reg8(op)],
+        ([0,0,1,0,1] [#op 3]) => [SLA  reg8(op)],
+        ([0,0,1,1,0] [#op 3]) => [SWAP reg8(op)],
+        ([0,0,1,1,1] [#op 3]) => [SRL  reg8(op)],
+        // | opcode(2) | imm_op(3) | op(3)
+        ([0,1] [#imm_op 3] [#op 3]) => [BIT imm_op, reg8(op)],
+        ([1,0] [#imm_op 3] [#op 3]) => [RES imm_op, reg8(op)],
+        ([1,1] [#imm_op 3] [#op 3]) => [SET imm_op, reg8(op)],
+    );
+    match cont {
+        Done(i) => i,
+        _       => panic!("CB instructions should not take immediate data")
+    }
+}
+
 pub fn decode(opcode: u8) -> Cont<Instruction> {
     match_rule!(opcode,
-
         (#0x76) => [HALT],
-        ([0,1] [#to 3] [#from 3]) => [LD to, from],
-        ([1,0,0,0,1] [#op 3]) => [ADC op],
-        ([1,0,0,0,0] [#op 3]) => [ADD op],
-        ([1,0,0,1,1] [#op 3]) => [SBC op],
-        ([1,0,0,1,0] [#op 3]) => [SUB op],
-        ([1,0,1,0,1] [#op 3]) => [XOR op],
-        ([1,0,1,0,0] [#op 3]) => [AND op],
-        ([1,0,1,1,1] [#op 3]) => [OR op],
-        ([1,0,1,1,0] [#op 3]) => [CP op],
-        ([1,1] [#op 3] [1,1,1]) => [RST op],
-        ([0,0] [#dest 3] [1,1,0]) => [LD dest, I#],
 
-        (#0x01) => [LD16 BC, I16#],
-        (#0x11) => [LD16 DE, I16#],
-        (#0x21) => [LD16 HL, I16#],
-        (#0x31) => [LD16 SP, I16#],
+        ([0,0] [#dest 3] [1,1,0])   => [LD  reg8(dest), I#],
+        ([0,0] [#op   3] [1,0,0])   => [INC reg8(op)],
+        ([0,0] [#op   3] [1,0,1])   => [DEC reg8(op)],
+        ([0,1] [#to   3] [#from 3]) => [LD  reg8(to), reg8(from)],
+        ([1,1] [#op   3] [1,1,1])   => [RST reg8(op)],
+
+        ([0,0,1] [#op 2] [0,0,0])   => [JR   A#, cond(op)],
+        ([1,1,0] [#op 2] [0,0,0])   => [RET      cond(op)],
+        ([1,1,0] [#op 2] [0,1,0])   => [JP   A#, cond(op)],
+        ([1,1,0] [#op 2] [1,0,0])   => [CALL A#, cond(op)],
+
+        ([1,0,0,0,0] [#op 3])       => [ADD reg8(op)],
+        ([1,0,0,0,1] [#op 3])       => [ADC reg8(op)],
+        ([1,0,0,1,0] [#op 3])       => [SUB reg8(op)],
+        ([1,0,0,1,1] [#op 3])       => [SBC reg8(op)],
+        ([1,0,1,0,0] [#op 3])       => [AND reg8(op)],
+        ([1,0,1,0,1] [#op 3])       => [XOR reg8(op)],
+        ([1,0,1,1,0] [#op 3])       => [CP  reg8(op)],
+        ([1,0,1,1,1] [#op 3])       => [OR  reg8(op)],
+
+        // 16 bit
+        ([0,0] [#op 2] [0,0,0,1])   => [LD16  reg16(op, false), I16#],
+        ([0,0] [#op 2] [0,0,1,1])   => [INC16 reg16(op, false)],
+        ([0,0] [#op 2] [1,0,0,1])   => [ADDHL reg16(op, false)],
+        ([0,0] [#op 2] [1,0,1,1])   => [DEC16 reg16(op, false)],
+        ([1,1] [#op 2] [0,0,0,1])   => [POP   reg16(op, true)],
+        ([1,1] [#op 2] [0,1,0,1])   => [PUSH  reg16(op, true)],
+
+        (#0xE8) => [ADDSP I#],
+
+        // control
+        (#0x18) => [JR A#, Cond::None],
+        (#0xC3) => [JP A#, Cond::None],
+        (#0xC9) => [RET Cond::None],
+        (#0xCD) => [CALL A#, Cond::None],
+        (#0xE9) => [JP Ind(IndirectAddr::HL), Cond::None],
+
         (#0x27) => [DAA],
         (#0x2F) => [CPL],
         (#0x3F) => [CCF],
@@ -223,119 +245,42 @@ pub fn decode(opcode: u8) -> Cont<Instruction> {
         (#0x10) => [STOP],
         (#0xF3) => [DI],
         (#0xFB) => [EI],
-        (#0x1A) => [LD Reg(A), Ind(IndirectAddr::DE)],
+
         (#0x02) => [LD Ind(IndirectAddr::BC), Reg(A)],
         (#0x12) => [LD Ind(IndirectAddr::DE), Reg(A)],
         (#0xEA) => [LD A#, Reg(A)],
-        (#0xFA) => [LD Reg(A), A#],
         (#0xF2) => [LD Ind(IndirectAddr::C), Reg(A)],
+
+        (#0x1A) => [LD Reg(A), Ind(IndirectAddr::DE)],
+        (#0xFA) => [LD Reg(A), A#],
         (#0xE2) => [LD Reg(A), Ind(IndirectAddr::C)],
+        (#0x0A) => [LD Reg(A), Ind(IndirectAddr::BC)],
+
         (#0x3A) => [LDD Reg(A), Ind(IndirectAddr::HL)],
         (#0x32) => [LDD Ind(IndirectAddr::HL), Reg(A)],
+
         (#0x2A) => [LDI Reg(A), Ind(IndirectAddr::HL)],
         (#0x22) => [LDI Ind(IndirectAddr::HL), Reg(A)],
-        (#0x0A) => [LD Reg(A), Ind(IndirectAddr::BC)],
 
         (#0xE0) => [LDH A#, Reg(A)],
         (#0xF0) => [LDH Reg(A), A#],
-        // 16-bit load
-        (#0x01) => [LD16 BC, I16#],
-        (#0x11) => [LD16 DE, I16#],
-        (#0x21) => [LD16 HL, I16#],
-        (#0x31) => [LD16 SP, I16#],
-
         (#0xF9) => [LDSPHL],
-
         (#0xF8) => [LDHL I#], // TODO: immediate should be signed!
-
         (#0x08) => [LDSP A16#],
-
-        (#0xF5) => [PUSH AF],
-        (#0xC5) => [PUSH BC],
-        (#0xD5) => [PUSH DE],
-        (#0xE5) => [PUSH HL],
-
-        (#0xF1) => [POP AF],
-        (#0xC1) => [POP BC],
-        (#0xD1) => [POP DE],
-        (#0xE1) => [POP HL],
 
         (#0xC6) => [ADD I#],
         (#0xCE) => [ADC I#],
-
         (#0xD6) => [SUB I#],
         (#0xDE) => [SBC I#],
-
         (#0xE6) => [AND I#],
         (#0xEE) => [XOR I#],
-
-        (#0xF6) => [OR I#],
-        (#0xFE) => [CP I#],
-
-        (#0x04) => [INC Reg(B)],
-        (#0x0C) => [INC Reg(C)],
-        (#0x14) => [INC Reg(D)],
-        (#0x1C) => [INC Reg(E)],
-        (#0x24) => [INC Reg(F)],
-        (#0x2C) => [INC Reg(L)],
-        (#0x3C) => [INC Reg(A)],
-        (#0x34) => [INC Ind(IndirectAddr::HL)],
-
-        (#0x05) => [DEC Reg(B)],
-        (#0x0D) => [DEC Reg(C)],
-        (#0x15) => [DEC Reg(D)],
-        (#0x1D) => [DEC Reg(E)],
-        (#0x25) => [DEC Reg(F)],
-        (#0x2D) => [DEC Reg(L)],
-        (#0x3D) => [DEC Reg(A)],
-        (#0x35) => [DEC Ind(IndirectAddr::HL)],
-
-        (#0x09) => [ADDHL BC],
-        (#0x19) => [ADDHL DE],
-        (#0x29) => [ADDHL HL],
-        (#0x39) => [ADDHL SP],
-        (#0xE8) => [ADDSP I#],
-
-        (#0x03) => [INC16 BC],
-        (#0x13) => [INC16 DE],
-        (#0x23) => [INC16 HL],
-        (#0x33) => [INC16 SP],
-
-        (#0x0B) => [DEC16 BC],
-        (#0x1B) => [DEC16 DE],
-        (#0x2B) => [DEC16 HL],
-        (#0x3B) => [DEC16 SP],
+        (#0xF6) => [OR  I#],
+        (#0xFE) => [CP  I#],
 
         // rotates and shifts
         (#0x0F) => [RRCA],
         (#0x1f) => [RRA],
         (#0xCB) => (Partial8(Box::new(|cb| decode_cb(cb)))),
-
-        // control
-        (#0xC3) => [JP A#, Cond::None],
-        (#0xC2) => [JP A#, Cond::NZ],
-        (#0xCA) => [JP A#, Cond::Z],
-        (#0xD2) => [JP A#, Cond::NC],
-        (#0xDA) => [JP A#, Cond::C],
-        (#0xE9) => [JP Ind(IndirectAddr::HL), Cond::None],
-
-        (#0x18) => [JR A#, Cond::None],
-        (#0x20) => [JR A#, Cond::NZ],
-        (#0x28) => [JR A#, Cond::Z],
-        (#0x30) => [JR A#, Cond::NC],
-        (#0x38) => [JR A#, Cond::C],
-
-        (#0xCD) => [CALL A#, Cond::None],
-        (#0xC4) => [CALL A#, Cond::NZ],
-        (#0xCC) => [CALL A#, Cond::Z],
-        (#0xD4) => [CALL A#, Cond::NC],
-        (#0xDC) => [CALL A#, Cond::C],
-
-        (#0xC9) => [RET Cond::None],
-        (#0xC0) => [RET Cond::NZ],
-        (#0xC8) => [RET Cond::Z],
-        (#0xD0) => [RET Cond::NC],
-        (#0xD8) => [RET Cond::C],
 
         (#0xD9) => [RETI],
         (#0x07) => [RLCA],
