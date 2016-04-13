@@ -419,6 +419,7 @@ impl<'a> CpuOps for &'a mut Cpu {
         Reg16::HL.write(self, value);
     }
     
+    // TODO(David): Should the stack pointer be decremented before or after reading from memory?
     fn push<I: In16>(&mut self, i: I) {
         self.write_u16(self.regs.sp, i.read(self));
         self.regs.sp -= 2;
@@ -431,64 +432,113 @@ impl<'a> CpuOps for &'a mut Cpu {
     }
 
     fn add<I: In8>(&mut self, i: I) {
-        let result = (Reg8::A.read(self) as u16) + (i.read(self) as u16);
-        Reg8::A.write(self, result as u8);
-
-        // Update flags
+        let result = self.regs.a as u16 + i.read(self) as u16;
+        self.regs.a = result as u8;
         self.regs.update_flag(Flag::Z, result == 0);
         self.regs.reset_flag(Flag::N);
-        self.regs.update_flag(Flag::H, ((result >> 3) & 0x1) == 1);
-        self.regs.update_flag(Flag::C, ((result >> 7) & 0x1) == 1);
+        self.regs.update_flag(Flag::H, ((result >> 4) & 0x1) == 1);
+        self.regs.update_flag(Flag::C, ((result >> 8) & 0x1) == 1);
     }
 
     fn adc<I: In8>(&mut self, i: I) {
         let result =
-            (Reg8::A.read(self) as u16) +
-            (i.read(self) as u16) +
+            self.regs.a as u16 +
+            i.read(self) as u16 +
             if self.regs.get_flag(Flag::C) { 1 } else { 0 };
-        Reg8::A.write(self, result as u8);
-
-        // Update flags
+        self.regs.a = result as u8;
         self.regs.update_flag(Flag::Z, result == 0);
         self.regs.reset_flag(Flag::N);
-        self.regs.update_flag(Flag::H, ((result >> 3) & 0x1) == 1);
-        self.regs.update_flag(Flag::C, ((result >> 7) & 0x1) == 1);
+        self.regs.update_flag(Flag::H, ((result >> 4) & 0x1) == 1);
+        self.regs.update_flag(Flag::C, ((result >> 8) & 0x1) == 1);
     }
 
     fn sub<I: In8>(&mut self, i: I) {
+        let result = self.regs.a as u16 - i.read(self) as u16;
+        self.regs.a = result as u8;
+
+        // TODO(David): Flags
     }
 
     fn sbc<I: In8>(&mut self, i: I) {
+        let result =
+            self.regs.a as u16 -
+            i.read(self) as u16 -
+            if self.regs.get_flag(Flag::C) { 1 } else { 0 };
+        self.regs.a = result as u8;
+
+        // TODO(David): Flags
     }
 
     fn and<I: In8>(&mut self, i: I) {
-    }
-
-    fn xor<I: In8>(&mut self, i: I) {
+        self.regs.a &= i.read(self);
+        self.regs.update_flag(Flag::Z, result == 0);
+        self.regs.reset_flag(Flag::N);
+        self.regs.set_flag(Flag::H);
+        self.regs.reset_flag(Flag::C);
     }
 
     fn or<I: In8>(&mut self, i: I) {
+        self.regs.a |= i.read(self);
+        self.regs.update_flag(Flag::Z, result == 0);
+        self.regs.reset_flag(Flag::N);
+        self.regs.reset_flag(Flag::H);
+        self.regs.reset_flag(Flag::C);
+    }
+
+    fn xor<I: In8>(&mut self, i: I) {
+        self.regs.a ^= i.read(self);
+        self.regs.update_flag(Flag::Z, result == 0);
+        self.regs.reset_flag(Flag::N);
+        self.regs.reset_flag(Flag::H);
+        self.regs.reset_flag(Flag::C);
     }
 
     fn cp<I: In8>(&mut self, i: I) {
+        let result = self.regs.a as u16 - i.read(self) as u16;
+        self.regs.update_flag(Flag::Z, result == 0);
+        self.regs.set_flag(Flag::N);
+        // TODO(David): H and C flags
     }
 
-    fn inc<I: In8>(&mut self, i: I) {
+    fn inc<I: In8 + Out8>(&mut self, i: I) {
+        let result = i.read(self) + 1;
+        i.write(self, result);
+        self.regs.update_flag(Flag::Z, result == 0);
+        self.regs.reset_flag(Flag::N);
+        self.regs.update_flag(Flag::H, ((result >> 3) & 0x1) == 1);
     }
 
-    fn dec<I: In8>(&mut self, i: I) {
+    fn dec<I: In8 + Out8>(&mut self, i: I) {
+        let result = i.read(self) - 1;
+        i.write(self, result);
+        self.regs.update_flag(Flag::Z, result == 0);
+        self.regs.set_flag(Flag::N);
+        // TODO(David): H flag
     }
 
     fn add16<I: In16>(&mut self, i: I) {
+        let result = Reg16::HL.read(self) as u32 + i.read(self) as u32;
+        Reg16::HL.write(self, result as u16);
+        self.regs.reset_flag(Flag::N);
+        self.regs.update_flag(Flag::H, ((result >> 12) & 0x1) == 1);
+        self.regs.update_flag(Flag::C, ((result >> 16) & 0x1) == 1);
     }
 
     fn add16_sp(&mut self, i: Imm8) {
+        let result = self.regs.sp + i.read(self) as i8;
+        self.regs.reset_flag(Flag::Z);
+        self.regs.reset_flag(Flag::N);
+        // TODO(David): H and C flags are ambiguously defined
     }
 
     fn inc16<I: In16 + Out16>(&mut self, i: I) {
+        let result = i.read(self) + 1;
+        i.write(self, result);
     }
 
     fn dec16<I: In16 + Out16>(&mut self, i: I) {
+        let result = i.read(self) - 1;
+        i.write(self, result);
     }
 
     // misc

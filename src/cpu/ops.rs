@@ -77,14 +77,14 @@ pub trait CpuOps {
     fn sub<I: In8>(&mut self, i: I);
     fn sbc<I: In8>(&mut self, i: I);
     fn and<I: In8>(&mut self, i: I);
-    fn xor<I: In8>(&mut self, i: I);
     fn or<I: In8>(&mut self, i: I);
+    fn xor<I: In8>(&mut self, i: I);
     fn cp<I: In8>(&mut self, i: I);
     fn inc<I: In8 + Out8>(&mut self, i: I);
     fn dec<I: In8 + Out8>(&mut self, i: I);
     // 16-bit arithmetic
     fn add16<I: In16>(&mut self, i: I);
-    fn add16_sp(&mut self, i: Imm8);
+    fn add16_sp(&mut self, i: Imm8); // TODO(David): Replace Imm8 with just an i8 (must be signed)?
     fn inc16<I: In16 + Out16>(&mut self, i: I);
     fn dec16<I: In16 + Out16>(&mut self, i: I);
     // misc
