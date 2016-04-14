@@ -268,3 +268,23 @@ pub fn decode(opcode: u8) -> Cont<Instruction> {
         (#0xFD) => [NOP],
     )
 }
+
+#[cfg(test)]
+mod test {
+    use cpu::decoder;
+
+    // Panics if any of the instructions is not handled in the decoder
+    #[test]
+    fn decode_totality() {
+        for code in 0x00..0xFF {
+            decoder::decode(code);
+        }
+    }
+
+    #[test]
+    fn decode_cb_totality() {
+        for code in 0x00..0xFF {
+            decoder::decode_cb(code);
+        }
+    }
+}

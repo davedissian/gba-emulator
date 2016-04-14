@@ -514,7 +514,6 @@ mod test {
     use super::*;
     use cpu::registers::*;
     use cpu::ops::*;
-    use cpu::decoder;
 
     fn test_u8() -> u8 {
         144u8
@@ -526,21 +525,6 @@ mod test {
 
     fn init_cpu() -> Cpu {
         Cpu::new(Rc::new(RefCell::new(Memory::new_blank())))
-    }
-
-    // Panics if any of the instructions is not handled in the decoder
-    #[test]
-    fn decode_totality() {
-        for code in 0x00..0xFF {
-            decoder::decode(code);
-        }
-    }
-
-    #[test]
-    fn decode_cb_totality() {
-        for code in 0x00..0xFF {
-            decoder::decode_cb(code);
-        }
     }
 
     #[test]
