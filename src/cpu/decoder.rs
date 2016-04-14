@@ -48,67 +48,38 @@ macro_rules! instr {
     };
 }
 
-// count the number of elements within square brackets
-macro_rules! count {
-    ([]) => {0};
-    ([$e: tt $(,$es: tt)*]) => {1 + count!([$($es),*])}
-}
+macro_rules! mask_test {
+    ($acc_m: expr, $acc_w: expr, $op: expr, ) => {$op & $acc_w == $acc_m};
 
-// [1, 0, 1, 0] => 10
-macro_rules! assemble_bits {
-    ([$e: expr $(,$es: expr)*]) => {assemble_bits_acc!([$($es),*],$e)}
-}
+    ($acc_m: expr, $acc_w: expr, $op: expr, [#$n: ident, $size: expr] $($ts: tt)*) => {
+        mask_test!(  ($acc_m << $size as u8)
+                   , ($acc_w << $size as u8)
+                   , $op
+                   , $($ts)*)
+    };
 
-// helper for assemble_bits
-macro_rules! assemble_bits_acc {
-    ([], $acc: expr) => {$acc};
-
-    ([$e: expr $(,$es: expr)*], $acc: expr) => {
-        assemble_bits_acc!([$($es),*], ($acc << 1) | $e)
-    }
-}
-
-macro_rules! mask_aux {
-    ($acc: expr, [#$n: ident $size: expr]) => {$acc << $size};
-    ($acc: expr, $t: tt) => {assemble_bits_acc!($t, $acc)};
-}
-
-macro_rules! assemble_mask {
-    ($acc: expr,) => {$acc};
-    ($acc: expr, $t: tt $($ts: tt)*) => {
-        assemble_mask!(mask_aux!($acc, $t), $($ts)*)
-    }
-}
-
-macro_rules! wildcard_aux {
-    ($acc: expr, [#$n: ident $size: expr]) => {$acc << $size};
-    ($acc: expr, $t: tt) => {{
-        let shift = count!($t);
-        ($acc << shift) | ((1 << shift) - 1)
-    }};
-}
-
-macro_rules! wildcard_mask {
-    ($acc: expr,) => {$acc};
-    ($acc: expr, $t: tt $($ts: tt)*) => {
-        wildcard_mask!(wildcard_aux!($acc, $t), $($ts)*)
+    ($acc_m: expr, $acc_w: expr, $op: expr, [$n: expr, $size: expr] $($ts: tt)*) => {
+        mask_test!(  ($acc_m << $size as u8) | $n as u8
+                   , ($acc_w << $size as u8) | ((1 << $size as u8) - 1 as u8)
+                   , $op
+                   , $($ts)*)
     }
 }
 
 macro_rules! op_shift {
     () => {0};
-    ([#$n: ident $size: expr] $($ts: tt)*) => {$size + op_shift!($($ts)*)};
-    ($t: tt $($ts: tt)*) => {count!($t) + op_shift!($($ts)*)}
+    ([#$n: ident, $size: expr] $($ts: tt)*) => {$size + op_shift!($($ts)*)};
+    ([$n: expr, $size: expr] $($ts: tt)*) => {$size + op_shift!($($ts)*)}
 }
 
 macro_rules! transform {
     ($op: expr, () => ($leaf: expr)) => {$leaf};
     ($op: expr, () => [$($leaf: tt)+]) => {instr!($($leaf)+)};
 
-    ($op: expr, ([#$n: ident $size: expr] $($ts: tt)*) => $leaf: tt) => {{
-        let shift = op_shift!($($ts)*);
-        let mask  = ((1 << $size) - 1) << shift;
-        let $n = ($op & mask) >> shift;
+    ($op: expr, ([#$n: ident, $size: expr] $($ts: tt)*) => $leaf: tt) => {{
+        let shift: u8 = op_shift!($($ts)*);
+        let mask:  u8 = ((1 << $size as u8) - 1) << shift;
+        let $n:    u8 = ($op & mask) >> shift;
 
         transform!($op, ($($ts)*) => $leaf)
     }};
@@ -120,11 +91,9 @@ macro_rules! transform {
 
 macro_rules! matches {
     ($op: expr, #$e: expr) => {$op == $e};
-    ($op: expr, $($t: tt)+) => {{
-        let mask = assemble_mask!(0, $($t)+);
-        let wildcard = wildcard_mask!(0, $($t)+);
-        $op & wildcard == mask
-    }};
+    ($op: expr, $($t: tt)+) => {
+        mask_test!(0, 0, $op, $($t)+)
+    };
 }
 
 macro_rules! match_rule {
@@ -173,22 +142,21 @@ fn cond(operand: u8) -> Cond {
     }
 }
 
-
 pub fn decode_cb(code: u8) -> Instruction {
     let cont = match_rule!(code,
         // | opcode(5) | op(3)
-        ([0,0,0,0,0] [#op 3]) => [RLC  reg8(op)],
-        ([0,0,0,0,1] [#op 3]) => [RRC  reg8(op)],
-        ([0,0,0,1,0] [#op 3]) => [RR   reg8(op)],
-        ([0,0,0,1,1] [#op 3]) => [RL   reg8(op)],
-        ([0,0,1,0,0] [#op 3]) => [SRA  reg8(op)],
-        ([0,0,1,0,1] [#op 3]) => [SLA  reg8(op)],
-        ([0,0,1,1,0] [#op 3]) => [SWAP reg8(op)],
-        ([0,0,1,1,1] [#op 3]) => [SRL  reg8(op)],
+        ([0b00000, 5] [#op, 3]) => [RLC  reg8(op)],
+        ([0b00001, 5] [#op, 3]) => [RRC  reg8(op)],
+        ([0b00010, 5] [#op, 3]) => [RR   reg8(op)],
+        ([0b00011, 5] [#op, 3]) => [RL   reg8(op)],
+        ([0b00100, 5] [#op, 3]) => [SRA  reg8(op)],
+        ([0b00101, 5] [#op, 3]) => [SLA  reg8(op)],
+        ([0b00110, 5] [#op, 3]) => [SWAP reg8(op)],
+        ([0b00111, 5] [#op, 3]) => [SRL  reg8(op)],
         // | opcode(2) | imm_op(3) | op(3)
-        ([0,1] [#imm_op 3] [#op 3]) => [BIT imm_op, reg8(op)],
-        ([1,0] [#imm_op 3] [#op 3]) => [RES imm_op, reg8(op)],
-        ([1,1] [#imm_op 3] [#op 3]) => [SET imm_op, reg8(op)],
+        ([0b01, 2] [#imm_op, 3] [#op, 3]) => [BIT imm_op, reg8(op)],
+        ([0b10, 2] [#imm_op, 3] [#op, 3]) => [RES imm_op, reg8(op)],
+        ([0b11, 2] [#imm_op, 3] [#op, 3]) => [SET imm_op, reg8(op)],
     );
     match cont {
         Done(i) => i,
@@ -200,33 +168,33 @@ pub fn decode(opcode: u8) -> Cont<Instruction> {
     match_rule!(opcode,
         (#0x76) => [HALT],
 
-        ([0,0] [#dest 3] [1,1,0])   => [LD  reg8(dest), I#],
-        ([0,0] [#op   3] [1,0,0])   => [INC reg8(op)],
-        ([0,0] [#op   3] [1,0,1])   => [DEC reg8(op)],
-        ([0,1] [#to   3] [#from 3]) => [LD  reg8(to), reg8(from)],
-        ([1,1] [#op   3] [1,1,1])   => [RST reg8(op)],
+        ([0b00, 2] [#dst, 3] [0b110, 3]) => [LD  reg8(dst), I#],
+        ([0b00, 2] [#op,  3] [0b100, 3]) => [INC reg8(op)],
+        ([0b00, 2] [#op,  3] [0b101, 3]) => [DEC reg8(op)],
+        ([0b01, 2] [#to,  3] [#from, 3]) => [LD  reg8(to), reg8(from)],
+        ([0b11, 2] [#op,  3] [0b111, 3]) => [RST reg8(op)],
 
-        ([0,0,1] [#op 2] [0,0,0])   => [JR   A#, cond(op)],
-        ([1,1,0] [#op 2] [0,0,0])   => [RET      cond(op)],
-        ([1,1,0] [#op 2] [0,1,0])   => [JP   A#, cond(op)],
-        ([1,1,0] [#op 2] [1,0,0])   => [CALL A#, cond(op)],
+        ([0b001, 3] [#op, 2] [0b000, 3]) => [JR   A#, cond(op)],
+        ([0b110, 3] [#op, 2] [0b000, 3]) => [RET      cond(op)],
+        ([0b110, 3] [#op, 2] [0b010, 3]) => [JP   A#, cond(op)],
+        ([0b110, 3] [#op, 2] [0b100, 3]) => [CALL A#, cond(op)],
 
-        ([1,0,0,0,0] [#op 3])       => [ADD reg8(op)],
-        ([1,0,0,0,1] [#op 3])       => [ADC reg8(op)],
-        ([1,0,0,1,0] [#op 3])       => [SUB reg8(op)],
-        ([1,0,0,1,1] [#op 3])       => [SBC reg8(op)],
-        ([1,0,1,0,0] [#op 3])       => [AND reg8(op)],
-        ([1,0,1,0,1] [#op 3])       => [XOR reg8(op)],
-        ([1,0,1,1,0] [#op 3])       => [CP  reg8(op)],
-        ([1,0,1,1,1] [#op 3])       => [OR  reg8(op)],
+        ([0b10000, 5] [#op, 3])          => [ADD reg8(op)],
+        ([0b10001, 5] [#op, 3])          => [ADC reg8(op)],
+        ([0b10010, 5] [#op, 3])          => [SUB reg8(op)],
+        ([0b10011, 5] [#op, 3])          => [SBC reg8(op)],
+        ([0b10100, 5] [#op, 3])          => [AND reg8(op)],
+        ([0b10101, 5] [#op, 3])          => [XOR reg8(op)],
+        ([0b10110, 5] [#op, 3])          => [CP  reg8(op)],
+        ([0b10111, 5] [#op, 3])          => [OR  reg8(op)],
 
         // 16 bit
-        ([0,0] [#op 2] [0,0,0,1])   => [LD16  reg16(op, false), I16#],
-        ([0,0] [#op 2] [0,0,1,1])   => [INC16 reg16(op, false)],
-        ([0,0] [#op 2] [1,0,0,1])   => [ADDHL reg16(op, false)],
-        ([0,0] [#op 2] [1,0,1,1])   => [DEC16 reg16(op, false)],
-        ([1,1] [#op 2] [0,0,0,1])   => [POP   reg16(op, true)],
-        ([1,1] [#op 2] [0,1,0,1])   => [PUSH  reg16(op, true)],
+        ([0b00, 2] [#op, 2] [0b0001, 4]) => [LD16  reg16(op, false), I16#],
+        ([0b00, 2] [#op, 2] [0b0011, 4]) => [INC16 reg16(op, false)],
+        ([0b00, 2] [#op, 2] [0b1001, 4]) => [ADDHL reg16(op, false)],
+        ([0b00, 2] [#op, 2] [0b1011, 4]) => [DEC16 reg16(op, false)],
+        ([0b11, 2] [#op, 2] [0b0001, 4]) => [POP   reg16(op, true)],
+        ([0b11, 2] [#op, 2] [0b0101, 4]) => [PUSH  reg16(op, true)],
 
         (#0xE8) => [ADDSP I#],
 
