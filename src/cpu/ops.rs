@@ -67,14 +67,14 @@ pub enum Cont<R> {
 }
 
 // TODO: this could be simplified
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Instruction {
     ADC(Op8),
     ADDSP(Op8),
     ADD(Op8),
     AND(Op8),
     BIT(u8, Op8),
-    CALL(Op8, Cond),
+    CALL(Cond, Op8),
     CCF,
     CP(Op8),
     CPL,
@@ -84,8 +84,8 @@ pub enum Instruction {
     EI,
     HALT,
     INC(Op8),
-    JP(Op8, Cond),
-    JR(Op8, Cond),
+    JP(Cond, Op8),
+    JR(Cond, Op8),
     LD(Op8, Op8),
     LDD(Op8, Op8),
     LDH(Op8, Op8),
@@ -99,11 +99,12 @@ pub enum Instruction {
     RL(Op8),
     RLC(Op8),
     RLCA,
+    RLA,
     RR(Op8),
     RRA,
     RRC(Op8),
     RRCA,
-    RST(Op8),
+    RST(u8),
     SBC(Op8),
     SCF,
     SET(u8, Op8),
@@ -124,6 +125,7 @@ pub enum Instruction {
     LD16(Reg16, u16),
     LDSP(u16),
     LDSPHL,
+    LDHLSP(Op8),
     OR16(Reg16),
     POP(Reg16),
     PUSH(Reg16),

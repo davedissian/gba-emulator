@@ -69,7 +69,7 @@ macro_rules! write_reg_pair {
 }
 
 // Control Conditions
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Cond {
     None, NZ, Z, NC, C
 }
@@ -149,7 +149,7 @@ impl In16 for Imm16 {
 }
 
 // Indirect Addressing
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IndirectAddr {
     BC, DE, HL,     // (BC/DE/HL)
     C,              // (FF00 + C)
@@ -189,7 +189,7 @@ impl Out16 for IndirectAddr {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Op8 {
     Reg(Reg8),
     Ind(IndirectAddr),
