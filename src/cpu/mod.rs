@@ -545,15 +545,34 @@ impl<'a> CpuOps for &'a mut Cpu {
     fn nop(&mut self) {}
     
     fn daa(&mut self) {
+        // TODO(David): Ambiguous spec, test this
+        // A stores a number up to 255. In BCD form each nibble would store a single digit,
+        // therefore the maximum number that can be stored is 99.
+
+        // Source:
+        // The DAA instruction corrects this invalid result. It checks to see if there was a carry
+        // out of the low order BCD digit and adjusts the value (by adding six to it) if there was
+        // an overflow. After adjusting for overflow out of the L.O. digit, the DAA instruction
+        // repeats this process for the H.O. digit. DAA sets the carry flag if the was a (decimal)
+        // carry out of the H.O. digit of the operation.
     }
 
     fn cpl(&mut self) {
+        self.regs.a = !self.regs.a;
+        self.regs.set_flag(Flag::N);
+        self.regs.set_flag(Flag::H);
     }
 
     fn ccf(&mut self) {
+        self.regs.reset_flag(Flag::N);
+        self.regs.reset_flag(Flag::H);
+        self.regs.update_flag(Flag::C, !self.regs.get_flag(Flag::C));
     }
 
     fn scf(&mut self) {
+        self.regs.reset_flag(Flag::N);
+        self.regs.reset_flag(Flag::H);
+        self.regs.set_flag(Flag::C);
     }
     
     fn halt(&mut self) {
@@ -569,31 +588,58 @@ impl<'a> CpuOps for &'a mut Cpu {
     }
 
     // rotate and shift
-    fn rrca(&mut self) {
-    }
-
-    fn rra(&mut self) {
-    }
-
     fn rlc<I: In8 + Out8>(&mut self, i: I) {
+        let value = i.read(self);
+        self.regs.update_flag(Flag::C, value >> 7);
+        let result = value << 1;
+        i.write(self, result);
+        self.regs.update_flag(Flag::Z, result == 0);
+        self.regs.reset_flag(Flag::N);
+        self.regs.reset_flag(Flag::H);
     }
     
     fn rl<I: In8 + Out8>(&mut self, i: I) {
+        // TODO(David): Spec is ambiguous again, what's the difference between RL and RLC?
+        rlc(self, i);
     }
     
     fn rrc<I: In8 + Out8>(&mut self, i: I) {
+        let value = i.read(self);
+        self.regs.update_flag(Flag::C, value & 0x1);
+        let result = value >> 1;
+        i.write(self, result);
+        self.regs.update_flag(Flag::Z, result == 0);
+        self.regs.reset_flag(Flag::N);
+        self.regs.reset_flag(Flag::H);
     }
     
     fn rr<I: In8 + Out8>(&mut self, i: I) {
+        // TODO(David): Spec is ambiguous again, what's the difference between RR and RRC?
+        rrc(self, i);
     }
     
     fn sla<I: In8 + Out8>(&mut self, i: I) {
+        let result = (i.read(self) as u16) << 1;
+        i.write(self, result);
+        self.regs.update_flag(Flag::Z, result == 0);
+        self.regs.reset_flag(Flag::N);
+        self.regs.reset_flag(Flag::H);
+        self.regs.update_flag(Flag::C, (result >> 8) & 0x1);
     }
     
     fn sra<I: In8 + Out8>(&mut self, i: I) {
+        let value = i.read(self);
+        self.regs.update_flag(Flag::C, value & 0x1);
+        let result = value >> 1;
+        i.write(self, result);
+        self.regs.update_flag(Flag::Z, result == 0);
+        self.regs.reset_flag(Flag::N);
+        self.regs.reset_flag(Flag::H);
     }
 
     fn swap<I: In8 + Out8>(&mut self, i: I) {
+        let initial = i.read(self);
+        i.write(self, ((initial >> 4) & 0xF) | ((initial << 4) & 0xF));
     }
     
     fn srl<I: In8 + Out8>(&mut self, i: I) {

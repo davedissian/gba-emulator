@@ -98,8 +98,6 @@ pub trait CpuOps {
     fn ei(&mut self);
     fn di(&mut self);
     // rotate and shift
-    fn rrca(&mut self);
-    fn rra(&mut self);
     fn rlc<I: In8 + Out8>(&mut self, i: I);
     fn rl<I: In8 + Out8>(&mut self, i: I);
     fn rrc<I: In8 + Out8>(&mut self, i: I);
@@ -385,8 +383,10 @@ pub fn decode<O: CpuOps>(mut ops: O) {
         0xFB => ops.ei(),
 
         // rotates and shifts
-        0x0F => ops.rrca(),
-        0x1f => ops.rra(),
+        0x07 => ops.rlc(A),
+        0x17 => ops.rl(A),
+        0x0F => ops.rrc(A),
+        0x1F => ops.rr(A),
         0xCB => {
             let next_opcode = ops.next_u8();
             match next_opcode {
