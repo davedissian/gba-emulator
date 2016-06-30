@@ -40,10 +40,8 @@ use std::fmt::Debug;
 use cpu::Cpu;
 use cpu::Cond;
 use cpu::Imm8;
-use cpu::Imm16;
-use cpu::IndirectAddr;
-use cpu::registers::Reg8::*;
-use cpu::registers::Reg16::*;
+use cpu::Op8;
+use cpu::registers::*;
 
 pub trait In8 : Debug {
     fn read(&self, cpu: &mut Cpu) -> u8;
@@ -61,10 +59,80 @@ pub trait Out16 : Debug {
     fn write(&self, cpu: &mut Cpu, data: u16);
 }
 
+// Instruction decoding is implemented in a continuation passing style.
+pub enum Cont<R> {
+    Partial8(Box<Fn(u8) -> R>),
+    Partial16(Box<Fn(u16) -> R>),
+    Done(R)
+}
+
+// TODO: this could be simplified
+#[derive(Debug, PartialEq, Eq)]
+pub enum Instruction {
+    ADC(Op8),
+    ADDSP(Op8),
+    ADD(Op8),
+    AND(Op8),
+    BIT(u8, Op8),
+    CALL(Cond, Op8),
+    CCF,
+    CP(Op8),
+    CPL,
+    DAA,
+    DEC(Op8),
+    DI,
+    EI,
+    HALT,
+    INC(Op8),
+    JP(Cond, Op8),
+    JR(Cond, Op8),
+    LD(Op8, Op8),
+    LDD(Op8, Op8),
+    LDH(Op8, Op8),
+    LDHL(Op8),
+    LDI(Op8, Op8),
+    NOP,
+    OR(Op8),
+    RES(u8, Op8),
+    RET(Cond),
+    RETI,
+    RL(Op8),
+    RLC(Op8),
+    RLCA,
+    RLA,
+    RR(Op8),
+    RRA,
+    RRC(Op8),
+    RRCA,
+    RST(u8),
+    SBC(Op8),
+    SCF,
+    SET(u8, Op8),
+    SLA(Op8),
+    SRA(Op8),
+    SRL(Op8),
+    STOP,
+    SUB(Op8),
+    SWAP(Op8),
+    XOR(Op8),
+    // 16 bit
+    ADDHL(Reg16),
+    ADD16(Reg16),
+    AND16(Reg16),
+    CP16(Reg16),
+    DEC16(Reg16),
+    INC16(Reg16),
+    LD16(Reg16, u16),
+    LDSP(u16),
+    LDSPHL,
+    LDHLSP(Op8),
+    OR16(Reg16),
+    POP(Reg16),
+    PUSH(Reg16),
+}
+
+// TODO: this could be generated from the enum using a macro
 pub trait CpuOps {
-    fn next_u8(&mut self) -> u8;
-    fn next_u16(&mut self) -> u16;
-    
     // 8-bit and 16-bit load
     fn load<I: In8, O: Out8>(&mut self, i: I, o: O);
     fn load16<I: In16, O: Out16>(&mut self, i: I, o: O);
@@ -120,417 +188,4 @@ pub trait CpuOps {
     fn rst(&mut self, offset: u8);
     fn ret(&mut self, cond: Cond);
     fn reti(&mut self);
-}
-
-// These macros are required due to a bug in the Rust borrow checker which disallows a mutable
-// object 'foo' having two method calls in the same line. Eg:
-//  foo.method(foo.value());
-macro_rules! op1 {
-    ($ops: ident, $instr:ident, $a:expr) => ({
-        let temp = $a;
-        $ops.$instr(temp);
-    })
-}
-
-macro_rules! op2 {
-    ($ops: ident, $instr:ident, $a:expr, $b:expr) => ({
-        let temp_a = $a;
-        let temp_b = $b;
-        $ops.$instr(temp_a, temp_b);
-    })
-}
-
-pub fn decode<O: CpuOps>(mut ops: O) {
-    let opcode = ops.next_u8();
-    match opcode { 
-        // 8-bit load
-        0x06 => op2!(ops, load, Imm8(ops.next_u8()), B), 
-        0x0E => op2!(ops, load, Imm8(ops.next_u8()), C), 
-        0x16 => op2!(ops, load, Imm8(ops.next_u8()), D), 
-        0x1E => op2!(ops, load, Imm8(ops.next_u8()), E), 
-        0x26 => op2!(ops, load, Imm8(ops.next_u8()), H), 
-        0x2E => op2!(ops, load, Imm8(ops.next_u8()), L), 
-        0x36 => op2!(ops, load, Imm8(ops.next_u8()), IndirectAddr::HL),
-
-        0x7F => ops.load(A, A),
-        0x78 => ops.load(B, A),
-        0x79 => ops.load(C, A),
-        0x7A => ops.load(D, A),
-        0x7B => ops.load(E, A),
-        0x7C => ops.load(F, A),
-        0x7D => ops.load(L, A),
-        0x7E => ops.load(IndirectAddr::HL, A),
-        0x0A => ops.load(IndirectAddr::BC, A),
-        0x1A => ops.load(IndirectAddr::DE, A),
-        0x47 => ops.load(A, B),
-        0x40 => ops.load(B, B),
-        0x41 => ops.load(C, B),
-        0x42 => ops.load(D, B),
-        0x43 => ops.load(E, B),
-        0x44 => ops.load(F, B),
-        0x45 => ops.load(L, B),
-        0x46 => ops.load(IndirectAddr::HL, B),
-        0x4F => ops.load(A, C),
-        0x48 => ops.load(B, C),
-        0x49 => ops.load(C, C),
-        0x4A => ops.load(D, C),
-        0x4B => ops.load(E, C),
-        0x4C => ops.load(F, C),
-        0x4D => ops.load(L, C),
-        0x4E => ops.load(IndirectAddr::HL, C),
-        0x57 => ops.load(A, D),
-        0x50 => ops.load(B, D),
-        0x51 => ops.load(C, D),
-        0x52 => ops.load(D, D),
-        0x53 => ops.load(E, D),
-        0x54 => ops.load(F, D),
-        0x55 => ops.load(L, D),
-        0x56 => ops.load(IndirectAddr::HL, D),
-        0x5F => ops.load(A, E),
-        0x58 => ops.load(B, E),
-        0x59 => ops.load(C, E),
-        0x5A => ops.load(D, E),
-        0x5B => ops.load(E, E),
-        0x5C => ops.load(F, E),
-        0x5D => ops.load(L, E),
-        0x5E => ops.load(IndirectAddr::HL, E),
-        0x67 => ops.load(A, H),
-        0x60 => ops.load(B, H),
-        0x61 => ops.load(C, H),
-        0x62 => ops.load(D, H),
-        0x63 => ops.load(E, H),
-        0x64 => ops.load(F, H),
-        0x65 => ops.load(L, H),
-        0x66 => ops.load(IndirectAddr::HL, H),
-        0x6F => ops.load(A, L),
-        0x68 => ops.load(B, L),
-        0x69 => ops.load(C, L),
-        0x6A => ops.load(D, L),
-        0x6B => ops.load(E, L),
-        0x6C => ops.load(F, L),
-        0x6D => ops.load(L, L),
-        0x6E => ops.load(IndirectAddr::HL, L),
-
-        0x02 => ops.load(A, IndirectAddr::BC),
-        0x12 => ops.load(A, IndirectAddr::DE),
-        0x77 => ops.load(A, IndirectAddr::HL),
-        0xEA => op2!(ops, load, A, IndirectAddr::Imm16(ops.next_u16())),
-        0x70 => ops.load(B, IndirectAddr::HL),
-        0x71 => ops.load(C, IndirectAddr::HL),
-        0x72 => ops.load(D, IndirectAddr::HL),
-        0x73 => ops.load(E, IndirectAddr::HL),
-        0x74 => ops.load(F, IndirectAddr::HL),
-        0x75 => ops.load(L, IndirectAddr::HL),
-
-        0xF2 => ops.load(A, IndirectAddr::C),
-        0xE2 => ops.load(IndirectAddr::C, A),
-
-        0x3A => println!("warning: Unimplemented LDD A, (HL)"),
-        0x32 => println!("warning: Unimplemented LDD (HL), A"),
-        0x2A => println!("warning: Unimplemented LDI A, (HL)"),
-        0x22 => println!("warning: Unimplemented LDI (HL), A"),
-       
-        0xE0 => op2!(ops, load, A, IndirectAddr::Imm8(ops.next_u8())),
-        0xF0 => op2!(ops, load, IndirectAddr::Imm8(ops.next_u8()), A),
-
-        // 16-bit load
-        0x01 => op2!(ops, load16, Imm16(ops.next_u16()), BC),
-        0x11 => op2!(ops, load16, Imm16(ops.next_u16()), DE),
-        0x21 => op2!(ops, load16, Imm16(ops.next_u16()), HL),
-        0x31 => op2!(ops, load16, Imm16(ops.next_u16()), SP),
-        0xF9 => ops.load16(HL, SP),
-        0xF8 => op1!(ops, load16_hlsp, ops.next_u8() as i8),
-        0x08 => op2!(ops, load16, SP, IndirectAddr::Imm16(ops.next_u16())),
-
-        0xF5 => ops.push(AF),
-        0xC5 => ops.push(BC),
-        0xD5 => ops.push(DE),
-        0xE5 => ops.push(HL),
-
-        0xF1 => ops.pop(AF),
-        0xC1 => ops.pop(BC),
-        0xD1 => ops.pop(DE),
-        0xE1 => ops.pop(HL),
-
-        // arithmetic
-        0x87 => ops.add(A),
-        0x80 => ops.add(B),
-        0x81 => ops.add(C),
-        0x82 => ops.add(D),
-        0x83 => ops.add(E),
-        0x84 => ops.add(F),
-        0x85 => ops.add(L),
-        0x86 => ops.add(IndirectAddr::HL),
-        0xC6 => op1!(ops, add, Imm8(ops.next_u8())),
-
-        0x8F => ops.adc(A),
-        0x88 => ops.adc(B),
-        0x89 => ops.adc(C),
-        0x8A => ops.adc(D),
-        0x8B => ops.adc(E),
-        0x8C => ops.adc(F),
-        0x8D => ops.adc(L),
-        0x8E => ops.adc(IndirectAddr::HL),
-        0xCE => op1!(ops, adc, Imm8(ops.next_u8())),
-
-        0x97 => ops.sub(A),
-        0x90 => ops.sub(B),
-        0x91 => ops.sub(C),
-        0x92 => ops.sub(D),
-        0x93 => ops.sub(E),
-        0x94 => ops.sub(F),
-        0x95 => ops.sub(L),
-        0x96 => ops.sub(IndirectAddr::HL),
-        0xD6 => op1!(ops, sub, Imm8(ops.next_u8())),
-
-        0x9F => ops.sbc(A),
-        0x98 => ops.sbc(B),
-        0x99 => ops.sbc(C),
-        0x9A => ops.sbc(D),
-        0x9B => ops.sbc(E),
-        0x9C => ops.sbc(F),
-        0x9D => ops.sbc(L),
-        0x9E => ops.sbc(IndirectAddr::HL),
-        0xDE => op1!(ops, sbc, Imm8(ops.next_u8())),
-
-        0xA7 => ops.and(A),
-        0xA0 => ops.and(B),
-        0xA1 => ops.and(C),
-        0xA2 => ops.and(D),
-        0xA3 => ops.and(E),
-        0xA4 => ops.and(F),
-        0xA5 => ops.and(L),
-        0xA6 => ops.and(IndirectAddr::HL),
-        0xE6 => op1!(ops, and, Imm8(ops.next_u8())),
-
-        0xAF => ops.xor(A),
-        0xA8 => ops.xor(B),
-        0xA9 => ops.xor(C),
-        0xAA => ops.xor(D),
-        0xAB => ops.xor(E),
-        0xAC => ops.xor(F),
-        0xAD => ops.xor(L),
-        0xAE => ops.xor(IndirectAddr::HL),
-        0xEE => op1!(ops, xor, Imm8(ops.next_u8())),
-
-        0xB7 => ops.or(A),
-        0xB0 => ops.or(B),
-        0xB1 => ops.or(C),
-        0xB2 => ops.or(D),
-        0xB3 => ops.or(E),
-        0xB4 => ops.or(F),
-        0xB5 => ops.or(L),
-        0xB6 => ops.or(IndirectAddr::HL),
-        0xF6 => op1!(ops, or, Imm8(ops.next_u8())),
-
-        0xBF => ops.cp(A),
-        0xB8 => ops.cp(B),
-        0xB9 => ops.cp(C),
-        0xBA => ops.cp(D),
-        0xBB => ops.cp(E),
-        0xBC => ops.cp(F),
-        0xBD => ops.cp(L),
-        0xBE => ops.cp(IndirectAddr::HL),
-        0xFE => op1!(ops, cp, Imm8(ops.next_u8())),
-
-        0x3C => ops.inc(A),
-        0x04 => ops.inc(B),
-        0x0C => ops.inc(C),
-        0x14 => ops.inc(D),
-        0x1C => ops.inc(E),
-        0x24 => ops.inc(F),
-        0x2C => ops.inc(L),
-        0x34 => ops.inc(IndirectAddr::HL),
-
-        0x3D => ops.dec(A),
-        0x05 => ops.dec(B),
-        0x0D => ops.dec(C),
-        0x15 => ops.dec(D),
-        0x1D => ops.dec(E),
-        0x25 => ops.dec(F),
-        0x2D => ops.dec(L),
-        0x35 => ops.dec(IndirectAddr::HL),
-        
-        0x09 => ops.add16(BC),
-        0x19 => ops.add16(DE),
-        0x29 => ops.add16(HL),
-        0x39 => ops.add16(SP),
-        0xE8 => op1!(ops, add16_sp, Imm8(ops.next_u8())),
-
-        0x03 => ops.inc16(BC),
-        0x13 => ops.inc16(DE),
-        0x23 => ops.inc16(HL),
-        0x33 => ops.inc16(SP),
-
-        0x0B => ops.dec16(BC),
-        0x1B => ops.dec16(DE),
-        0x2B => ops.dec16(HL),
-        0x3B => ops.dec16(SP),
-
-        // misc
-        0x27 => ops.daa(),
-        0x2F => ops.cpl(),
-        0x3F => ops.ccf(),
-        0x37 => ops.scf(),
-        0x00 => ops.nop(),
-        0x76 => ops.halt(),
-        0x10 => {
-            let next_opcode = ops.next_u8();
-            match next_opcode {
-                0x00 => ops.stop(),
-                _ => panic!("warning: Unknown opcode 0x10{:02x}", next_opcode) 
-            }
-        }
-        0xF3 => ops.di(),
-        0xFB => ops.ei(),
-
-        // rotates and shifts
-        0x0F => ops.rrca(),
-        0x1f => ops.rra(),
-        0xCB => {
-            let next_opcode = ops.next_u8();
-            match next_opcode {
-                0x07 => ops.rlc(A),
-                0x00 => ops.rlc(B),
-                0x01 => ops.rlc(C),
-                0x02 => ops.rlc(D),
-                0x03 => ops.rlc(E),
-                0x04 => ops.rlc(H),
-                0x05 => ops.rlc(L),
-                0x06 => ops.rlc(IndirectAddr::HL),
-                
-                0x17 => ops.rl(A),
-                0x10 => ops.rl(B),
-                0x11 => ops.rl(C),
-                0x12 => ops.rl(D),
-                0x13 => ops.rl(E),
-                0x14 => ops.rl(H),
-                0x15 => ops.rl(L),
-                0x16 => ops.rl(IndirectAddr::HL),
-
-                0x0F => ops.rrc(A),
-                0x08 => ops.rrc(B),
-                0x09 => ops.rrc(C),
-                0x0A => ops.rrc(D),
-                0x0B => ops.rrc(E),
-                0x0C => ops.rrc(H),
-                0x0D => ops.rrc(L),
-                0x0E => ops.rrc(IndirectAddr::HL),
-                
-                0x1F => ops.rr(A),
-                0x18 => ops.rr(B),
-                0x19 => ops.rr(C),
-                0x1A => ops.rr(D),
-                0x1B => ops.rr(E),
-                0x1C => ops.rr(H),
-                0x1D => ops.rr(L),
-                0x1E => ops.rr(IndirectAddr::HL),
-
-                0x27 => ops.sla(A),
-                0x20 => ops.sla(B),
-                0x21 => ops.sla(C),
-                0x22 => ops.sla(D),
-                0x23 => ops.sla(E),
-                0x24 => ops.sla(H),
-                0x25 => ops.sla(L),
-                0x26 => ops.sla(IndirectAddr::HL),
-
-                0x2F => ops.sra(A),
-                0x28 => ops.sra(B),
-                0x29 => ops.sra(C),
-                0x2A => ops.sra(D),
-                0x2B => ops.sra(E),
-                0x2C => ops.sra(H),
-                0x2D => ops.sra(L),
-                0x2E => ops.sra(IndirectAddr::HL),
-
-                0x37 => ops.swap(A),
-                0x30 => ops.swap(B),
-                0x31 => ops.swap(C),
-                0x32 => ops.swap(D),
-                0x33 => ops.swap(E),
-                0x34 => ops.swap(H),
-                0x35 => ops.swap(L),
-                0x36 => ops.swap(IndirectAddr::HL),
-
-                0x3F => ops.srl(A),
-                0x38 => ops.srl(B),
-                0x39 => ops.srl(C),
-                0x3A => ops.srl(D),
-                0x3B => ops.srl(E),
-                0x3C => ops.srl(H),
-                0x3D => ops.srl(L),
-                0x3E => ops.srl(IndirectAddr::HL),
-
-                // bit manipulation
-                0x47 => op2!(ops, bit, ops.next_u8(), A),
-                0x40 => op2!(ops, bit, ops.next_u8(), B),
-                0x41 => op2!(ops, bit, ops.next_u8(), C),
-                0x42 => op2!(ops, bit, ops.next_u8(), D),
-                0x43 => op2!(ops, bit, ops.next_u8(), E),
-                0x44 => op2!(ops, bit, ops.next_u8(), H),
-                0x45 => op2!(ops, bit, ops.next_u8(), L),
-                0x46 => op2!(ops, bit, ops.next_u8(), IndirectAddr::HL),
-
-                0xC7 => op2!(ops, set, ops.next_u8(), A),
-                0xC0 => op2!(ops, set, ops.next_u8(), B),
-                0xC1 => op2!(ops, set, ops.next_u8(), C),
-                0xC2 => op2!(ops, set, ops.next_u8(), D),
-                0xC3 => op2!(ops, set, ops.next_u8(), E),
-                0xC4 => op2!(ops, set, ops.next_u8(), H),
-                0xC5 => op2!(ops, set, ops.next_u8(), L),
-                0xC6 => op2!(ops, set, ops.next_u8(), IndirectAddr::HL),
-
-                0x87 => op2!(ops, res, ops.next_u8(), A),
-                0x80 => op2!(ops, res, ops.next_u8(), B),
-                0x81 => op2!(ops, res, ops.next_u8(), C),
-                0x82 => op2!(ops, res, ops.next_u8(), D),
-                0x83 => op2!(ops, res, ops.next_u8(), E),
-                0x84 => op2!(ops, res, ops.next_u8(), H),
-                0x85 => op2!(ops, res, ops.next_u8(), L),
-                0x86 => op2!(ops, res, ops.next_u8(), IndirectAddr::HL),
-
-                _ => panic!("warning: Unknown opcode 0xCB{:02x}", next_opcode)
-            }
-        },
-
-        // control
-        0xC3 => op2!(ops, jp, ops.next_u16(), Cond::None),
-        0xC2 => op2!(ops, jp, ops.next_u16(), Cond::NZ),
-        0xCA => op2!(ops, jp, ops.next_u16(), Cond::Z),
-        0xD2 => op2!(ops, jp, ops.next_u16(), Cond::NC),
-        0xDA => op2!(ops, jp, ops.next_u16(), Cond::C),
-        0xE9 => ops.jp_hl(),
-
-        0x18 => op2!(ops, jr, ops.next_u8(), Cond::None),
-        0x20 => op2!(ops, jr, ops.next_u8(), Cond::NZ),
-        0x28 => op2!(ops, jr, ops.next_u8(), Cond::Z),
-        0x30 => op2!(ops, jr, ops.next_u8(), Cond::NC),
-        0x38 => op2!(ops, jr, ops.next_u8(), Cond::C),
-        
-        0xCD => op2!(ops, call, ops.next_u16(), Cond::None),
-        0xC4 => op2!(ops, call, ops.next_u16(), Cond::NZ),
-        0xCC => op2!(ops, call, ops.next_u16(), Cond::Z),
-        0xD4 => op2!(ops, call, ops.next_u16(), Cond::NC),
-        0xDC => op2!(ops, call, ops.next_u16(), Cond::C),
-       
-        0xC7 => ops.rst(0x00),
-        0xCF => ops.rst(0x08),
-        0xD7 => ops.rst(0x10),
-        0xDF => ops.rst(0x18),
-        0xE7 => ops.rst(0x20),
-        0xEF => ops.rst(0x28),
-        0xF7 => ops.rst(0x30),
-        0xFF => ops.rst(0x38),
-
-        0xC9 => ops.ret(Cond::None),
-        0xC0 => ops.ret(Cond::NZ),
-        0xC8 => ops.ret(Cond::Z),
-        0xD0 => ops.ret(Cond::NC),
-        0xD8 => ops.ret(Cond::C),
-        
-        0xD9 => ops.reti(),
-        
-        _ => println!("warning: Unknown opcode 0x{:02x}", opcode)
-    }
 }
