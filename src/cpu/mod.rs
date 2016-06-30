@@ -417,7 +417,7 @@ impl<'a> CpuOps for &'a mut Cpu {
 
     fn rl<I: In8 + Out8>(&mut self, i: I) {
         // TODO(David): Spec is ambiguous again, what's the difference between RL and RLC?
-        rlc(self, i);
+        self.rlc(i);
     }
 
     fn rrc<I: In8 + Out8>(&mut self, i: I) {
@@ -432,12 +432,12 @@ impl<'a> CpuOps for &'a mut Cpu {
 
     fn rr<I: In8 + Out8>(&mut self, i: I) {
         // TODO(David): Spec is ambiguous again, what's the difference between RR and RRC?
-        rrc(self, i);
+        self.rrc(i);
     }
 
     fn sla<I: In8 + Out8>(&mut self, i: I) {
         let result = (i.read(self) as u16) << 1;
-        i.write(self, result);
+        i.write(self, result as u8);
         self.regs.update_flag(Flag::Z, result == 0);
         self.regs.reset_flag(Flag::N);
         self.regs.reset_flag(Flag::H);
@@ -505,7 +505,6 @@ impl Cpu {
     }
 
     pub fn tick(&mut self) {
-
         let instr = self.fetch_instr();
 
         println!("{:?}", instr);
