@@ -1,8 +1,8 @@
 /* Decoder */
 
-use cpu::Op8;
-use cpu::Op8::*;
 use cpu::Cond;
+use cpu::ops::Op8;
+use cpu::ops::Op8::*;
 use cpu::ops::Cont;
 use cpu::ops::Cont::*;
 use cpu::ops::Instruction;

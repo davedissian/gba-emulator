@@ -189,13 +189,6 @@ impl Out16 for IndirectAddr {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Op8 {
-    Reg(Reg8),
-    Ind(IndirectAddr),
-    Imm(u8)
-}
-
 impl Fetcher for Cpu {
     fn fetch_word(&mut self) -> u8 {
         let byte = self.mem_read_u8(self.regs.pc);

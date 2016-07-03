@@ -40,7 +40,7 @@ use std::fmt::Debug;
 use cpu::Cpu;
 use cpu::Cond;
 use cpu::Imm8;
-use cpu::Op8;
+use cpu::IndirectAddr;
 use cpu::registers::*;
 
 pub trait In8 : Debug {
@@ -59,6 +59,14 @@ pub trait Out16 : Debug {
     fn write(&self, cpu: &mut Cpu, data: u16);
 }
 
+// Enum that represents all In8/Out8's
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Op8 {
+    Reg(Reg8),
+    Ind(IndirectAddr),
+    Imm(u8)
+}
+
 // Instruction decoding is implemented in a continuation passing style.
 pub enum Cont<R> {
     Partial8(Box<Fn(u8) -> R>),
@@ -66,69 +74,75 @@ pub enum Cont<R> {
     Done(R)
 }
 
-// TODO: this could be simplified
+// Synchronised with the trait below
 #[derive(Debug, PartialEq, Eq)]
 pub enum Instruction {
-    ADC(Op8),
-    ADDSP(Op8),
+    // 8-bit and 16-bit load
+    LD(Op8, Op8),       //
+    LDD(Op8, Op8),      //
+    LDH(Op8, Op8),      // load8
+    LDHL(Op8),          //
+    LDI(Op8, Op8),      //
+    LD16(Reg16, u16), //
+    LDSP(u16),        // load16
+    LDSPHL,           //
+    LDHLSP(Op8),
+    PUSH(Reg16),
+    POP(Reg16),
+    // 8-bit arithmetic
     ADD(Op8),
-    AND(Op8),
-    BIT(u8, Op8),
-    CALL(Cond, Op8),
-    CCF,
-    CP(Op8),
-    CPL,
-    DAA,
-    DEC(Op8),
-    DI,
-    EI,
-    HALT,
-    INC(Op8),
-    JP(Cond, Op8),
-    JR(Cond, Op8),
-    LD(Op8, Op8),
-    LDD(Op8, Op8),
-    LDH(Op8, Op8),
-    LDHL(Op8),
-    LDI(Op8, Op8),
-    NOP,
-    OR(Op8),
-    RES(u8, Op8),
-    RET(Cond),
-    RETI,
-    RL(Op8),
-    RLC(Op8),
-    RLCA,
-    RLA,
-    RR(Op8),
-    RRA,
-    RRC(Op8),
-    RRCA,
-    RST(u8),
-    SBC(Op8),
-    SCF,
-    SET(u8, Op8),
-    SLA(Op8),
-    SRA(Op8),
-    SRL(Op8),
-    STOP,
+    ADC(Op8),
     SUB(Op8),
-    SWAP(Op8),
+    SBC(Op8),
+    AND(Op8),
+    OR(Op8),
     XOR(Op8),
-    // 16 bit
+    CP(Op8),
+    INC(Op8),
+    DEC(Op8),
+    // 16-bit arithmetic
     ADDHL(Reg16),
     ADD16(Reg16),
-    AND16(Reg16),
-    CP16(Reg16),
-    DEC16(Reg16),
+    ADDSP(Op8),
     INC16(Reg16),
-    LD16(Reg16, u16),
-    LDSP(u16),
-    LDSPHL,
-    LDHLSP(Op8),
-    OR16(Reg16),
-    POP(Reg16),
-    PUSH(Reg16),
+    DEC16(Reg16),
+    AND16(Reg16),   //
+    CP16(Reg16),    // do these really exist?
+    OR16(Reg16),    //
+    // misc
+    NOP,
+    DAA,
+    CPL,
+    CCF,
+    SCF,
+    HALT,
+    STOP,
+    EI,
+    DI,
+    // rotate and shift
+    RLC(Op8),
+    RLCA,       // alias for RLC(A) 
+    RL(Op8),
+    RLA,        // alias for RL(A)
+    RRC(Op8),
+    RRCA,       // alias for RRC(A)
+    RR(Op8),
+    RRA,        // alias for RR(A)
+    SLA(Op8),
+    SRA(Op8),
+    SWAP(Op8),
+    SRL(Op8),
+    // bit manipulation
+    BIT(u8, Op8),
+    SET(u8, Op8),
+    RES(u8, Op8),
+    // control
+    JP(Cond, Op8),
+    JR(Cond, Op8),
+    CALL(Cond, Op8),
+    RST(u8),
+    RET(Cond),
+    RETI,
 }
 
 // TODO: this could be generated from the enum using a macro
