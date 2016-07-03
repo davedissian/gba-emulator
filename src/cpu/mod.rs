@@ -204,10 +204,13 @@ impl Fetcher for Cpu {
     }
 }
 
+fn get_flag_bit(value: u16, bit: u8) -> bool {
+    ((value >> bit) & 0x1) == 1
+}
+
 // Interpreter implementation of the CPU ops defined in the ops module
 #[allow(unused_variables)]
 impl<'a> CpuOps for &'a mut Cpu {
-
     fn load<I: In8, O: Out8>(&mut self, i: I, o: O) {
         let value = i.read(self);
         o.write(self, value);
@@ -246,8 +249,8 @@ impl<'a> CpuOps for &'a mut Cpu {
         self.regs.a = result as u8;
         self.regs.update_flag(Flag::Z, result == 0);
         self.regs.reset_flag(Flag::N);
-        self.regs.update_flag(Flag::H, ((result >> 4) & 0x1) == 1);
-        self.regs.update_flag(Flag::C, ((result >> 8) & 0x1) == 1);
+        self.regs.update_flag(Flag::H, get_flag_bit(result, 4));
+        self.regs.update_flag(Flag::C, get_flag_bit(result, 8));
     }
 
     fn adc<I: In8>(&mut self, i: I) {
@@ -258,8 +261,8 @@ impl<'a> CpuOps for &'a mut Cpu {
         self.regs.a = result as u8;
         self.regs.update_flag(Flag::Z, result == 0);
         self.regs.reset_flag(Flag::N);
-        self.regs.update_flag(Flag::H, ((result >> 4) & 0x1) == 1);
-        self.regs.update_flag(Flag::C, ((result >> 8) & 0x1) == 1);
+        self.regs.update_flag(Flag::H, get_flag_bit(result, 4));
+        self.regs.update_flag(Flag::C, get_flag_bit(result, 8));
     }
 
     fn sub<I: In8>(&mut self, i: I) {
@@ -318,7 +321,7 @@ impl<'a> CpuOps for &'a mut Cpu {
         i.write(self, result);
         self.regs.update_flag(Flag::Z, result == 0);
         self.regs.reset_flag(Flag::N);
-        self.regs.update_flag(Flag::H, ((result >> 3) & 0x1) == 1);
+        self.regs.update_flag(Flag::H, get_flag_bit(result as u16, 3));
     }
 
     fn dec<I: In8 + Out8>(&mut self, i: I) {
@@ -333,8 +336,8 @@ impl<'a> CpuOps for &'a mut Cpu {
         let result = Reg16::HL.read(self) as u32 + i.read(self) as u32;
         Reg16::HL.write(self, result as u16);
         self.regs.reset_flag(Flag::N);
-        self.regs.update_flag(Flag::H, ((result >> 12) & 0x1) == 1);
-        self.regs.update_flag(Flag::C, ((result >> 16) & 0x1) == 1);
+        self.regs.update_flag(Flag::H, get_flag_bit(result as u16, 12));
+        self.regs.update_flag(Flag::C, get_flag_bit(result as u16, 16));
     }
 
     fn add16_sp(&mut self, i: Imm8) {
@@ -383,7 +386,8 @@ impl<'a> CpuOps for &'a mut Cpu {
     fn ccf(&mut self) {
         self.regs.reset_flag(Flag::N);
         self.regs.reset_flag(Flag::H);
-        self.regs.update_flag(Flag::C, !self.regs.get_flag(Flag::C));
+        let current_flag = self.regs.get_flag(Flag::C);
+        self.regs.update_flag(Flag::C, !current_flag);
     }
 
     fn scf(&mut self) {
@@ -407,7 +411,7 @@ impl<'a> CpuOps for &'a mut Cpu {
     // rotate and shift
     fn rlc<I: In8 + Out8>(&mut self, i: I) {
         let value = i.read(self);
-        self.regs.update_flag(Flag::C, value >> 7);
+        self.regs.update_flag(Flag::C, get_flag_bit(value as u16, 7));
         let result = value << 1;
         i.write(self, result);
         self.regs.update_flag(Flag::Z, result == 0);
@@ -422,7 +426,7 @@ impl<'a> CpuOps for &'a mut Cpu {
 
     fn rrc<I: In8 + Out8>(&mut self, i: I) {
         let value = i.read(self);
-        self.regs.update_flag(Flag::C, value & 0x1);
+        self.regs.update_flag(Flag::C, get_flag_bit(value as u16, 0));
         let result = value >> 1;
         i.write(self, result);
         self.regs.update_flag(Flag::Z, result == 0);
@@ -441,12 +445,12 @@ impl<'a> CpuOps for &'a mut Cpu {
         self.regs.update_flag(Flag::Z, result == 0);
         self.regs.reset_flag(Flag::N);
         self.regs.reset_flag(Flag::H);
-        self.regs.update_flag(Flag::C, (result >> 8) & 0x1);
+        self.regs.update_flag(Flag::C, get_flag_bit(result, 8));
     }
 
     fn sra<I: In8 + Out8>(&mut self, i: I) {
         let value = i.read(self);
-        self.regs.update_flag(Flag::C, value & 0x1);
+        self.regs.update_flag(Flag::C, get_flag_bit(value as u16, 0));
         let result = value >> 1;
         i.write(self, result);
         self.regs.update_flag(Flag::Z, result == 0);
