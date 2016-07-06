@@ -27,7 +27,7 @@ pub enum Reg8 {
     A, F, B, C, D, E, H, L
 }
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Clone, Copy, Eq, Debug)]
 pub enum Reg16 {
     AF, BC, DE, HL, SP, PC
 }

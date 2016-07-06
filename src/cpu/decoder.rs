@@ -1,23 +1,42 @@
 /* Decoder */
 
 use cpu::Cond;
-use cpu::ops::Op8;
-use cpu::ops::Op8::*;
+use cpu::ops::Arg8;
+use cpu::ops::Arg16;
 use cpu::ops::Cont;
 use cpu::ops::Cont::*;
 use cpu::ops::Instruction;
 use cpu::ops::Instruction::*;
 use cpu::registers::Reg8::*;
-use cpu::registers::Reg16;
 use cpu::registers::Reg16::*;
 use cpu::IndirectAddr;
 
-// TODO: add documentation for the macros
+/*
+ * Examples for instruction decoding:
+ *
+ * (#0xAB) => [Instr]
+ *  If opcode matches 0xAB, decode as Instr
+ *
+ * ([0b01000,5] [#arg, 3]) => [Instr arg]
+ *  If opcode matches 0b01000xxx, then extract xxx as the argument and decode as Instr
+ *
+ * ([0b10, 2] [#arg, 3] [0b110, 3]) => [Instr arg ]
+ *  If opcode matches 0b10xxx110, then extract xxx as the argument and decode as Instr
+ *
+ * Instructions themselves can sometimes require more than 8 bits. Therefore, the [..] syntax can
+ * instead build a function that constructions an instruction given more data. For example:
+ *  - [Instr] becomes Done(Instr)
+ *  - [Instr arg] becomes Done(Instr(arg))
+ *  - [Instr a, b] becomes Done(Instr(a, b))
+ *  - [Instr A#, arg] becomes Partial8(|data| Instr(Ind(IndirectAddr::Imm8(data)), arg))
+ *  - [Instr arg, I16#] becomes Partial16(|data| Instr(arg, data))
+ */
+
 macro_rules! imm_type {
-    (A   -> $i: ident) => { Ind(IndirectAddr::Imm8($i)) };
-    (I   -> $i: ident) => { Imm($i) };
-    (I16 -> $i: ident) => { $i };
-    (A16 -> $i: ident) => { $i }
+    (A   -> $i: ident) => { Arg8::Ind(IndirectAddr::Imm8($i)) };
+    (I   -> $i: ident) => { Arg8::Imm($i) };
+    (A16 -> $i: ident) => { Arg16::Ind(IndirectAddr::Imm16($i)) };
+    (I16 -> $i: ident) => { Arg16::Imm($i) }
 }
 
 macro_rules! partial_type {
@@ -27,6 +46,7 @@ macro_rules! partial_type {
     (A16) => { Partial16 }
 }
 
+// A convenience macro that builds a Cont<Instruction> from an instruction mmemonic and arguments
 macro_rules! instr {
     ($mnem: ident) => {
         Done($mnem)
@@ -48,6 +68,40 @@ macro_rules! instr {
     };
 }
 
+// Calculate the bit shift of an argument from the op code to extract it
+// e.g. Given  [0b010, 3] [#arg, 3] [0b10, 2]. Extract arg by shifting by 2.
+macro_rules! op_shift {
+    () => {0};
+    ([#$n: ident, $size: expr] $($ts: tt)*) => {$size + op_shift!($($ts)*)};
+    ([$n: expr, $size: expr] $($ts: tt)*) => {$size + op_shift!($($ts)*)}
+}
+
+// Transform an instruction rule into code which extracts the op-code data
+macro_rules! transform {
+    // If we have parsed the left hand side...
+
+    // If the RHS is an expression in parentheses, then return it literally
+    ($op: expr, () => ($leaf: expr)) => {$leaf};
+
+    // Otherwise, build the Cond<Instruction> using the instr! macro
+    ($op: expr, () => [$($leaf: tt)+]) => {instr!($($leaf)+)};
+
+    // If we reach an argument [#ident, <size>] then extract it as ident
+    ($op: expr, ([#$n: ident, $size: expr] $($ts: tt)*) => $leaf: tt) => {{
+        let shift: u8 = op_shift!($($ts)*);
+        let mask:  u8 = ((1 << $size as u8) - 1) << shift;
+        let $n:    u8 = ($op & mask) >> shift;
+
+        transform!($op, ($($ts)*) => $leaf)
+    }};
+
+    // If we reach a [<pattern>, <size>] node, skip it
+    ($op: expr, ($t: tt $($ts: tt)*) => $leaf: tt) => {{
+        transform!($op, ($($ts)*) => $leaf)
+    }};
+}
+
+// Construct a test which determines whether the op-code matches a given pattern
 macro_rules! mask_test {
     ($acc_m: expr, $acc_w: expr, $op: expr, ) => {$op & $acc_w == $acc_m};
 
@@ -66,29 +120,7 @@ macro_rules! mask_test {
     }
 }
 
-macro_rules! op_shift {
-    () => {0};
-    ([#$n: ident, $size: expr] $($ts: tt)*) => {$size + op_shift!($($ts)*)};
-    ([$n: expr, $size: expr] $($ts: tt)*) => {$size + op_shift!($($ts)*)}
-}
-
-macro_rules! transform {
-    ($op: expr, () => ($leaf: expr)) => {$leaf};
-    ($op: expr, () => [$($leaf: tt)+]) => {instr!($($leaf)+)};
-
-    ($op: expr, ([#$n: ident, $size: expr] $($ts: tt)*) => $leaf: tt) => {{
-        let shift: u8 = op_shift!($($ts)*);
-        let mask:  u8 = ((1 << $size as u8) - 1) << shift;
-        let $n:    u8 = ($op & mask) >> shift;
-
-        transform!($op, ($($ts)*) => $leaf)
-    }};
-
-    ($op: expr, ($t: tt $($ts: tt)*) => $leaf: tt) => {{
-        transform!($op, ($($ts)*) => $leaf)
-    }};
-}
-
+// Does the op-code given match the given op-code expression?
 macro_rules! matches {
     ($op: expr, #$e: expr) => {$op == $e};
     ($op: expr, $($t: tt)+) => {
@@ -96,6 +128,7 @@ macro_rules! matches {
     };
 }
 
+// Transform rules into a series of if-else statements
 macro_rules! match_rule {
     ($op: expr, $(($($t: tt)+) => $e: tt,)+) => {
         $( if matches!($op, $($t)+) {
@@ -109,29 +142,29 @@ fn shift_left(operand: u8, by: u8) -> u8 {
     operand << by
 }
 
-fn reg8(operand: u8) -> Op8 {
+fn reg8(operand: u8) -> Arg8 {
     match operand {
-        0x0 => Reg(B),
-        0x1 => Reg(C),
-        0x2 => Reg(D),
-        0x3 => Reg(E),
-        0x4 => Reg(H),
-        0x5 => Reg(L),
-        0x6 => Ind(IndirectAddr::HL),
-        0x7 => Reg(A),
+        0x0 => Arg8::Reg(B),
+        0x1 => Arg8::Reg(C),
+        0x2 => Arg8::Reg(D),
+        0x3 => Arg8::Reg(E),
+        0x4 => Arg8::Reg(H),
+        0x5 => Arg8::Reg(L),
+        0x6 => Arg8::Ind(IndirectAddr::HL),
+        0x7 => Arg8::Reg(A),
         _   => panic!("Invalid operand")
     }
 }
 
 // PUSH and POP might use the AF register instead of SP
 // AF and SP are mutually exclusive for a given type of instruction
-fn reg16(operand: u8, has_af: bool) -> Reg16 {
+fn reg16(operand: u8, has_af: bool) -> Arg16 {
     match operand {
-         0x0 => BC,
-         0x1 => DE,
-         0x2 => HL,
-         0x3 if has_af => AF,
-         0x3 => SP,
+         0x0 => Arg16::Reg(BC),
+         0x1 => Arg16::Reg(DE),
+         0x2 => Arg16::Reg(HL),
+         0x3 if has_af => Arg16::Reg(AF),
+         0x3 => Arg16::Reg(SP),
          _   => panic!("Invalid operand")
     }
 }
@@ -195,7 +228,7 @@ pub fn decode(opcode: u8) -> Cont<Instruction> {
         // 16 bit
         ([0b00, 2] [#op, 2] [0b0001, 4]) => [LD16  reg16(op, false), I16#],
         ([0b00, 2] [#op, 2] [0b0011, 4]) => [INC16 reg16(op, false)],
-        ([0b00, 2] [#op, 2] [0b1001, 4]) => [ADDHL reg16(op, false)],
+        ([0b00, 2] [#op, 2] [0b1001, 4]) => [ADD16 reg16(op, false)],
         ([0b00, 2] [#op, 2] [0b1011, 4]) => [DEC16 reg16(op, false)],
         ([0b11, 2] [#op, 2] [0b0001, 4]) => [POP   reg16(op, true)],
         ([0b11, 2] [#op, 2] [0b0101, 4]) => [PUSH  reg16(op, true)],
@@ -207,7 +240,7 @@ pub fn decode(opcode: u8) -> Cont<Instruction> {
         (#0xC3) => [JP   Cond::None, A#],
         (#0xC9) => [RET  Cond::None],
         (#0xCD) => [CALL Cond::None, A#],
-        (#0xE9) => [JP   Cond::None, Ind(IndirectAddr::HL)],
+        (#0xE9) => [JP   Cond::None, Arg8::Ind(IndirectAddr::HL)],
 
         (#0x27) => [DAA],
         (#0x2F) => [CPL],
@@ -218,26 +251,26 @@ pub fn decode(opcode: u8) -> Cont<Instruction> {
         (#0xF3) => [DI],
         (#0xFB) => [EI],
 
-        (#0x02) => [LD Ind(IndirectAddr::BC), Reg(A)],
-        (#0x12) => [LD Ind(IndirectAddr::DE), Reg(A)],
-        (#0xEA) => [LD A#, Reg(A)],
-        (#0xF2) => [LD Reg(A), Ind(IndirectAddr::C)],
+        (#0x02) => [LD Arg8::Ind(IndirectAddr::BC), Arg8::Reg(A)],
+        (#0x12) => [LD Arg8::Ind(IndirectAddr::DE), Arg8::Reg(A)],
+        (#0xEA) => [LD A#, Arg8::Reg(A)],
+        (#0xF2) => [LD Arg8::Reg(A), Arg8::Ind(IndirectAddr::C)],
 
-        (#0x1A) => [LD Reg(A), Ind(IndirectAddr::DE)],
-        (#0xFA) => [LD Reg(A), A#],
-        (#0xE2) => [LD Ind(IndirectAddr::C), Reg(A)],
-        (#0x0A) => [LD Reg(A), Ind(IndirectAddr::BC)],
+        (#0x1A) => [LD Arg8::Reg(A), Arg8::Ind(IndirectAddr::DE)],
+        (#0xFA) => [LD Arg8::Reg(A), A#],
+        (#0xE2) => [LD Arg8::Ind(IndirectAddr::C), Arg8::Reg(A)],
+        (#0x0A) => [LD Arg8::Reg(A), Arg8::Ind(IndirectAddr::BC)],
 
-        (#0x3A) => [LDD Reg(A), Ind(IndirectAddr::HL)],
-        (#0x32) => [LDD Ind(IndirectAddr::HL), Reg(A)],
+        (#0x3A) => [LDD Arg8::Reg(A), Arg8::Ind(IndirectAddr::HL)],
+        (#0x32) => [LDD Arg8::Ind(IndirectAddr::HL), Arg8::Reg(A)],
 
-        (#0x2A) => [LDI Reg(A), Ind(IndirectAddr::HL)],
-        (#0x22) => [LDI Ind(IndirectAddr::HL), Reg(A)],
+        (#0x2A) => [LDI Arg8::Reg(A), Arg8::Ind(IndirectAddr::HL)],
+        (#0x22) => [LDI Arg8::Ind(IndirectAddr::HL), Arg8::Reg(A)],
 
-        (#0xE0) => [LDH A#, Reg(A)],
-        (#0xF0) => [LDH Reg(A), A#],
-        (#0xF9) => [LDSPHL],
-        (#0xF8) => [LDHLSP I#], // TODO: immediate should be signed!
+        (#0xE0) => [LDH A#, Arg8::Reg(A)],
+        (#0xF0) => [LDH Arg8::Reg(A), A#],
+        (#0xF9) => [LD16SPHL],
+        (#0xF8) => [LDHL16 I#],
         (#0x08) => [LDSP A16#],
 
         (#0xC6) => [ADD I#],
@@ -250,13 +283,13 @@ pub fn decode(opcode: u8) -> Cont<Instruction> {
         (#0xFE) => [CP  I#],
 
         // rotates and shifts
-        (#0x0F) => [RRCA],
-        (#0x1f) => [RRA],
+        (#0x0F) => [RRC Arg8::Reg(A)],
+        (#0x1f) => [RR Arg8::Reg(A)],
         (#0xCB) => (Partial8(Box::new(|cb| decode_cb(cb)))),
 
         (#0xD9) => [RETI],
-        (#0x07) => [RLCA],
-        (#0x17) => [RLA],
+        (#0x07) => [RLC Arg8::Reg(A)],
+        (#0x17) => [RL Arg8::Reg(A)],
 
         // UNMAPPED:
         (#0xD3) => [NOP],
@@ -331,7 +364,7 @@ static REF: &'static [Instruction] = &[
     INC(Reg(B)),
     DEC(Reg(B)),
     LD(Reg(B), Imm(0)),
-    RLCA,
+    RLC(Arg8::Reg(A)),
     LDSP(0),
     ADDHL(BC),
     LD(Reg(A), Ind(IndirectAddr::BC)),
@@ -339,7 +372,7 @@ static REF: &'static [Instruction] = &[
     INC(Reg(C)),
     DEC(Reg(C)),
     LD(Reg(C), Imm(0)),
-    RRCA,
+    RRC(Arg8::Reg(A)),
     STOP,
     LD16(DE, 0),
     LD(Ind(IndirectAddr::DE), Reg(A)),
@@ -347,7 +380,7 @@ static REF: &'static [Instruction] = &[
     INC(Reg(D)),
     DEC(Reg(D)),
     LD(Reg(D), Imm(0)),
-    RLA,
+    RL(Arg8::Reg(A)),
     JR(Cond::None, Ind(IndirectAddr::Imm8(0))),
     ADDHL(DE),
     LD(Reg(A), Ind(IndirectAddr::DE)),
@@ -355,7 +388,7 @@ static REF: &'static [Instruction] = &[
     INC(Reg(E)),
     DEC(Reg(E)),
     LD(Reg(E), Imm(0)),
-    RRA,
+    RR(Arg8::Reg(A)),
     JR(Cond::NZ, Ind(IndirectAddr::Imm8(0))),
     LD16(HL, 0),
     LDI(Ind(IndirectAddr::HL), Reg(A)),

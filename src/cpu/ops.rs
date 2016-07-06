@@ -36,35 +36,23 @@
         RETI                (D9)
 */
 
-use std::fmt::Debug;
-use cpu::Cpu;
 use cpu::Cond;
-use cpu::Imm8;
 use cpu::IndirectAddr;
 use cpu::registers::*;
 
-pub trait In8 : Debug {
-    fn read(&self, cpu: &mut Cpu) -> u8;
-}
-
-pub trait Out8 : Debug {
-    fn write(&self, cpu: &mut Cpu, data: u8);
-}
-
-pub trait In16 : Debug {
-    fn read(&self, cpu: &mut Cpu) -> u16;
-}
-
-pub trait Out16 : Debug {
-    fn write(&self, cpu: &mut Cpu, data: u16);
-}
-
-// Enum that represents all In8/Out8's
+// Instruction arguments
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Op8 {
+pub enum Arg8 {
     Reg(Reg8),
     Ind(IndirectAddr),
     Imm(u8)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Arg16 {
+    Reg(Reg16),
+    Ind(IndirectAddr),
+    Imm(u16)
 }
 
 // Instruction decoding is implemented in a continuation passing style.
@@ -77,98 +65,97 @@ pub enum Cont<R> {
 // Synchronised with the trait below
 #[derive(Debug, PartialEq, Eq)]
 pub enum Instruction {
-    // 8-bit and 16-bit load
-    LD(Op8, Op8),       //
-    LDD(Op8, Op8),      //
-    LDH(Op8, Op8),      // load8
-    LDHL(Op8),          //
-    LDI(Op8, Op8),      //
-    LD16(Reg16, u16), //
-    LDSP(u16),        // load16
-    LDSPHL,           //
-    LDHLSP(Op8),
-    PUSH(Reg16),
-    POP(Reg16),
+    // 8-bit load
+    LD(Arg8, Arg8),     // LD out, in
+    LDD(Arg8, Arg8),    // LDD out, in
+    LDI(Arg8, Arg8),    // LDI out, in
+    LDH(Arg8, Arg8),    // LDH out, in
+    // 16-bit load
+    LD16(Arg16, Arg16), // LD out, in   (nn -> reg16)
+    LD16SPHL,           // LD SP, HL    (HL -> SP)
+    LDHL16(Arg8),       // LD HL, SP+n  (SP+n -> HL, n is signed)
+    LDSP(Arg16),        // LD (nn), SP  (put SP into addr nn)
+    PUSH(Arg16),        // PUSH reg     (add contents of reg to stack, SP -= 2)
+    POP(Arg16),         // POP reg      (copy contents at SP to reg, SP += 2)
     // 8-bit arithmetic
-    ADD(Op8),
-    ADC(Op8),
-    SUB(Op8),
-    SBC(Op8),
-    AND(Op8),
-    OR(Op8),
-    XOR(Op8),
-    CP(Op8),
-    INC(Op8),
-    DEC(Op8),
+    ADD(Arg8),          // ADD A, in
+    ADC(Arg8),          // ADC A, in
+    SUB(Arg8),          // SUB A, in
+    SBC(Arg8),          // SBC A, in
+    AND(Arg8),          // AND A, in
+    OR(Arg8),           // OR A, in
+    XOR(Arg8),          // XOR A, in
+    CP(Arg8),           // CP A, in     (compare)
+    INC(Arg8),          // INC reg
+    DEC(Arg8),          // DEC reg
     // 16-bit arithmetic
-    ADDHL(Reg16),
-    ADD16(Reg16),
-    ADDSP(Op8),
-    INC16(Reg16),
-    DEC16(Reg16),
-    AND16(Reg16),   //
-    CP16(Reg16),    // do these really exist?
-    OR16(Reg16),    //
+    ADD16(Arg16),       // ADD HL, in
+    ADDSP(Arg8),        // ADD SP, in
+    INC16(Arg16),       // INC reg
+    DEC16(Arg16),       // DEC reg
     // misc
-    NOP,
-    DAA,
-    CPL,
-    CCF,
-    SCF,
-    HALT,
-    STOP,
-    EI,
-    DI,
+    NOP,                // NOP
+    DAA,                // DAA
+    CPL,                // CPL
+    CCF,                // CCF
+    SCF,                // SCF
+    HALT,               // HALT
+    STOP,               // STOP
+    EI,                 // EI
+    DI,                 // DI
     // rotate and shift
-    RLC(Op8),
-    RLCA,       // alias for RLC(A) 
-    RL(Op8),
-    RLA,        // alias for RL(A)
-    RRC(Op8),
-    RRCA,       // alias for RRC(A)
-    RR(Op8),
-    RRA,        // alias for RR(A)
-    SLA(Op8),
-    SRA(Op8),
-    SWAP(Op8),
-    SRL(Op8),
+    RLC(Arg8),          // RLC inout
+    RL(Arg8),           // RL inout
+    RRC(Arg8),          // RRC inout
+    RR(Arg8),           // RR inout
+    SLA(Arg8),          // SLA inout
+    SRA(Arg8),          // SRA inout
+    SWAP(Arg8),         // SWAP inout
+    SRL(Arg8),          // SRL inout
     // bit manipulation
-    BIT(u8, Op8),
-    SET(u8, Op8),
-    RES(u8, Op8),
+    BIT(u8, Arg8),      // BIT b, reg
+    SET(u8, Arg8),      // SET b, reg
+    RES(u8, Arg8),      // RES b, reg
     // control
-    JP(Cond, Op8),
-    JR(Cond, Op8),
-    CALL(Cond, Op8),
-    RST(u8),
-    RET(Cond),
-    RETI,
+    JP(Cond, Arg8),     // JP nn / JP cond nn
+    JR(Cond, Arg8),     // JR nn / JR cond nn
+    CALL(Cond, Arg8),   // CALL nn / CALL cond nn
+    RST(u8),            // RST n
+    RET(Cond),          // RET / RET cond
+    RETI,               // RETI
 }
-
-// TODO: this could be generated from the enum using a macro
+    
 pub trait CpuOps {
-    // 8-bit and 16-bit load
-    fn load<I: In8, O: Out8>(&mut self, i: I, o: O);
-    fn load16<I: In16, O: Out16>(&mut self, i: I, o: O);
-    fn load16_hlsp(&mut self, offset: i8); // Load SP + n into HL
-    fn push<I: In16>(&mut self, i: I);
-    fn pop<O: Out16>(&mut self, o: O);
+    fn read_arg8(&self, arg: Arg8) -> u8;
+    fn write_arg8(&mut self, arg: Arg8, data: u8);
+    fn read_arg16(&self, arg: Arg16) -> u16;
+    fn write_arg16(&mut self, arg: Arg16, data: u16);
+    // 8-bit load
+    fn ld(&mut self, o: Arg8, i: Arg8);
+    fn ldd(&mut self, o: Arg8, i: Arg8);
+    fn ldi(&mut self, o: Arg8, i: Arg8);
+    fn ldh(&mut self, o: Arg8, i: Arg8);
+    // 16-bit load
+    fn ld16(&mut self, o: Arg16, i: Arg16);
+    fn ld16_hlsp(&mut self, offset: i8);
+    fn push(&mut self, i: Arg16);
+    fn pop(&mut self, o: Arg16);
     // 8-bit arithmetic
-    fn add<I: In8>(&mut self, i: I);
-    fn adc<I: In8>(&mut self, i: I);
-    fn sub<I: In8>(&mut self, i: I);
-    fn sbc<I: In8>(&mut self, i: I);
-    fn and<I: In8>(&mut self, i: I);
-    fn or<I: In8>(&mut self, i: I);
-    fn xor<I: In8>(&mut self, i: I);
-    fn cp<I: In8>(&mut self, i: I);
-    fn inc<I: In8 + Out8>(&mut self, i: I);
-    fn dec<I: In8 + Out8>(&mut self, i: I);
+    fn add(&mut self, i: Arg8);
+    fn adc(&mut self, i: Arg8);
+    fn sub(&mut self, i: Arg8);
+    fn sbc(&mut self, i: Arg8);
+    fn and(&mut self, i: Arg8);
+    fn or(&mut self, i: Arg8);
+    fn xor(&mut self, i: Arg8);
+    fn cp(&mut self, i: Arg8);
+    fn inc(&mut self, io: Arg8);
+    fn dec(&mut self, io: Arg8);
     // 16-bit arithmetic
-    fn add16<I: In16>(&mut self, i: I);
-    fn add16_sp(&mut self, i: Imm8); // TODO(David): Replace Imm8 with just an i8 (must be signed)?
-    fn inc16<I: In16 + Out16>(&mut self, i: I);
-    fn dec16<I: In16 + Out16>(&mut self, i: I);
+    fn add16(&mut self, i: Arg16);
+    fn add16_sp(&mut self, i: u8);
+    fn inc16(&mut self, io: Arg16);
+    fn dec16(&mut self, io: Arg16);
     // misc
     fn nop(&mut self);
     fn daa(&mut self);
@@ -180,18 +167,18 @@ pub trait CpuOps {
     fn ei(&mut self);
     fn di(&mut self);
     // rotate and shift
-    fn rlc<I: In8 + Out8>(&mut self, i: I);
-    fn rl<I: In8 + Out8>(&mut self, i: I);
-    fn rrc<I: In8 + Out8>(&mut self, i: I);
-    fn rr<I: In8 + Out8>(&mut self, i: I);
-    fn sla<I: In8 + Out8>(&mut self, i: I);
-    fn sra<I: In8 + Out8>(&mut self, i: I);
-    fn swap<I: In8 + Out8>(&mut self, i: I);
-    fn srl<I: In8 + Out8>(&mut self, i: I);
+    fn rlc(&mut self, io: Arg8);
+    fn rl(&mut self, io: Arg8);
+    fn rrc(&mut self, io: Arg8);
+    fn rr(&mut self, io: Arg8);
+    fn sla(&mut self, io: Arg8);
+    fn sra(&mut self, io: Arg8);
+    fn swap(&mut self, io: Arg8);
+    fn srl(&mut self, io: Arg8);
     // bit manipulation
-    fn bit<O: Out8>(&mut self, bit_id: u8, o: O);
-    fn set<O: Out8>(&mut self, bit_id: u8, o: O);
-    fn res<O: Out8>(&mut self, bit_id: u8, o: O);
+    fn bit(&mut self, bit_id: u8, o: Arg8);
+    fn set(&mut self, bit_id: u8, o: Arg8);
+    fn res(&mut self, bit_id: u8, o: Arg8);
     // control
     fn jp(&mut self, dest: u16, cond: Cond);        // JP n
     fn jp_hl(&mut self);                            // JP (HL)
@@ -200,4 +187,11 @@ pub trait CpuOps {
     fn rst(&mut self, offset: u8);
     fn ret(&mut self, cond: Cond);
     fn reti(&mut self);
+}
+
+// Dispatch function call
+pub fn dispatch<T>(instr: Instruction, ops: &CpuOps) {
+    match instr {
+        _ => panic!("Unimplemented")
+    }
 }

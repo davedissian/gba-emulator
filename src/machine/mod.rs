@@ -1,7 +1,7 @@
 use std::rc::Rc;
 use std::cell::RefCell;
 
-use cpu::Cpu;
+use cpu::interpreter::Cpu;
 use memory::Memory;
 
 pub struct Machine {
