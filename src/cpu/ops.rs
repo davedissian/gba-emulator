@@ -174,9 +174,9 @@ pub trait CpuOps {
     fn swap(&mut self, io: Arg8);
     fn srl(&mut self, io: Arg8);
     // bit manipulation
-    fn bit(&mut self, bit_id: u8, o: Arg8);
-    fn set(&mut self, bit_id: u8, o: Arg8);
-    fn res(&mut self, bit_id: u8, o: Arg8);
+    fn bit(&mut self, bit_id: u8, i: Arg8);
+    fn set(&mut self, bit_id: u8, io: Arg8);
+    fn res(&mut self, bit_id: u8, io: Arg8);
     // control
     fn jp(&mut self, cond: Cond, dest: Arg16);
     fn jr(&mut self, cond: Cond, offset: i8);
@@ -229,13 +229,14 @@ pub fn dispatch(instr: Instruction, ops: &mut CpuOps) {
         SRA(io)     => ops.sra(io),
         SWAP(io)    => ops.swap(io),
         SRL(io)     => ops.srl(io),
+        BIT(b, i)   => ops.bit(b, i),
+        SET(b, io)  => ops.set(b, io),
+        RES(b, io)  => ops.res(b, io),
         JP(c, i)    => ops.jp(c, i),
         JR(c, v)    => ops.jr(c, v),
         CALL(c, i)  => ops.call(c, i),
         RST(v)      => ops.rst(v),
         RET(c)      => ops.ret(c),
         RETI        => ops.reti(),
-
-        _ => panic!("Invalid instruction {:?}", instr)
     }
 }

@@ -139,12 +139,26 @@ impl<'a> CpuOps for &'a mut Cpu {
     }
     
     fn ldd(&mut self, o: Arg8, i: Arg8) {
+        self.ld(o, i);
+        self.dec16(Arg16::Reg(Reg16::HL));
     }
 
     fn ldi(&mut self, o: Arg8, i: Arg8) {
+        self.ld(o, i);
+        self.inc16(Arg16::Reg(Reg16::HL));
     }
 
     fn ldh(&mut self, o: Arg8, i: Arg8){
+        // Add 0xFF00 to any immediate input/output addresses
+        let o = match o {
+            Arg8::Ind(IndirectAddr::Imm8(v)) => Arg8::Ind(IndirectAddr::Imm16(v as u16 + 0xFF00)),
+            _ => o
+        };
+        let i = match i {
+            Arg8::Ind(IndirectAddr::Imm8(v)) => Arg8::Ind(IndirectAddr::Imm16(v as u16 + 0xFF00)),
+            _ => i
+        };
+        self.ld(o, i);
     }
 
     fn ld16(&mut self, o: Arg16, i: Arg16) {
@@ -413,7 +427,7 @@ impl<'a> CpuOps for &'a mut Cpu {
 
     fn sra(&mut self, io: Arg8) {
         let value = self.read_arg8(io);
-        let result = value >> 1;
+        let result = value >> 1 | value & 0x80;
         self.write_arg8(io, result);
         self.regs.update_flag(Flag::Z, result == 0);
         self.regs.reset_flag(Flag::N);
@@ -427,35 +441,82 @@ impl<'a> CpuOps for &'a mut Cpu {
     }
 
     fn srl(&mut self, io: Arg8) {
+        let value = self.read_arg8(io);
+        let result = value >> 1;
+        self.write_arg8(io, result);
+        self.regs.update_flag(Flag::Z, result == 0);
+        self.regs.reset_flag(Flag::N);
+        self.regs.reset_flag(Flag::H);
+        self.regs.update_flag(Flag::C, value & 0x1 == 0x1);
     }
 
     // bit manipulation
-    fn bit(&mut self, bit_id: u8, o: Arg8) {
+    fn bit(&mut self, bit_id: u8, i: Arg8) {
+        if bit_id > 7 {
+            panic!("Bit index out of bounds");
+        }
+        let value = self.read_arg8(i);
+        self.regs.update_flag(Flag::Z, (value >> bit_id) & 0x1 == 0);
+        self.regs.reset_flag(Flag::N);
+        self.regs.set_flag(Flag::H);
     }
 
-    fn set(&mut self, bit_id: u8, o: Arg8) {
+    fn set(&mut self, bit_id: u8, io: Arg8) {
+        if bit_id > 7 {
+            panic!("Bit index out of bounds");
+        }
+        let value = self.read_arg8(io);
+        self.write_arg8(io, value | (1 << bit_id));
     }
 
-    fn res(&mut self, bit_id: u8, o: Arg8) {
+    fn res(&mut self, bit_id: u8, io: Arg8) {
+        if bit_id > 7 {
+            panic!("Bit index out of bounds");
+        }
+        let value = self.read_arg8(io);
+        self.write_arg8(io, value & !(1 << bit_id));
     }
 
     // control
     fn jp(&mut self, cond: Cond, dest: Arg16) {
+        if self.check_condition(cond) {
+            self.regs.pc = self.read_arg16(dest);
+        } 
     }
 
     fn jr(&mut self, cond: Cond, offset: i8) {
+        if self.check_condition(cond) {
+            if offset < 0 {
+                self.regs.pc -= -offset as u16;
+            } else {
+                self.regs.pc += offset as u16;
+            }
+        }
     }
 
     fn call(&mut self, cond: Cond, dest: Arg16) {
+        // CALL is implemented as PUSH SP; JP cond dest
+        if self.check_condition(cond) {
+            unborrow!(self.push(Arg16::Imm(self.regs.pc + 3))); // CALL is 3 bytes
+            self.jp(Cond::None, dest);
+        }
     }
 
     fn rst(&mut self, offset: u8) {
+        unborrow!(self.push(Arg16::Imm(self.regs.pc)));
+        self.jp(Cond::None, Arg16::Imm(offset as u16));
     }
 
     fn ret(&mut self, cond: Cond) {
+        if self.check_condition(cond) {
+            self.regs.sp += 2;
+            self.regs.pc = self.mem_read_u16(self.regs.sp);
+        }
     }
 
     fn reti(&mut self) {
+        self.ret(Cond::None);
+        self.ei();
     }
 }
 
@@ -479,6 +540,17 @@ impl Cpu {
         if self.regs.pc > 256 {
             self.running = false;
             self.dump_state();
+        }
+    }
+
+    // Instruction helpers
+    fn check_condition(&self, cond: Cond) -> bool {
+        match cond {
+            Cond::None => true,
+            Cond::NZ => !self.regs.get_flag(Flag::Z),
+            Cond::Z => self.regs.get_flag(Flag::Z),
+            Cond::NC => !self.regs.get_flag(Flag::C),
+            Cond::C => self.regs.get_flag(Flag::C)
         }
     }
 
