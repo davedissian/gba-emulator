@@ -46,11 +46,6 @@ impl Fetcher for Cpu {
     }
 }
     
-// Helper function to get a single bit
-fn is_bit_set(value: u16, bit: u8) -> bool {
-    ((value >> bit) & 0x1) == 1
-}
-
 // Interpreter implementation of the CPU ops defined in the ops module
 #[allow(unused_variables)]
 impl<'a> CpuOps for &'a mut Cpu {
