@@ -48,7 +48,7 @@ impl Fetcher for Cpu {
     
 // Interpreter implementation of the CPU ops defined in the ops module
 #[allow(unused_variables)]
-impl<'a> CpuOps for &'a mut Cpu {
+impl CpuOps for Cpu {
     fn read_arg8(&self, arg: Arg8) -> u8 {
         match arg {
             Arg8::Reg(r) => match r {
@@ -532,8 +532,7 @@ impl Cpu {
     pub fn tick(&mut self) {
         let instr = self.fetch_instr();
         println!("{:x} {:?}", self.regs.pc, instr);
-        //self.dispatch(instr);
-        (&mut (*self)).dispatch(instr); // <- wtf?
+        self.dispatch(instr);
 
         // Stop execution for the lols
         if self.regs.pc > 256 {
