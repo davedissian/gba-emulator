@@ -289,14 +289,18 @@ impl<'a> CpuOps for &'a mut Cpu {
     }
 
     fn add16sp(&mut self, i: i8) {
-        //TODO(Csongor): this was not actually setting
-        //the stack pointer anyway, so I've ust commented
-        //it out for now
-
-        //let result = self.regs.sp + self.read_arg8(i) as i8;
-        //self.regs.reset_flag(Flag::Z);
-        //self.regs.reset_flag(Flag::N);
-        // TODO(David): H and C flags are ambiguously defined
+        let result: u16 = if i < 0 {
+            self.regs.sp - (-i as u16)
+        } else {
+            self.regs.sp + (i as u16)
+        };
+        self.regs.sp = result;
+        self.regs.reset_flag(Flag::Z);
+        self.regs.reset_flag(Flag::N);
+        // TODO(David): Why does this work?
+        let temp: u16 = self.regs.sp ^ (i as u16) ^ result;
+        self.regs.update_flag(Flag::H, temp & 0x10 == 0x10);
+        self.regs.update_flag(Flag::C, temp & 0x100 == 0x100);
     }
 
     fn inc16(&mut self, io: Arg16) {
@@ -334,8 +338,7 @@ impl<'a> CpuOps for &'a mut Cpu {
     fn ccf(&mut self) {
         self.regs.reset_flag(Flag::N);
         self.regs.reset_flag(Flag::H);
-        let current_flag = self.regs.get_flag(Flag::C);
-        self.regs.update_flag(Flag::C, !current_flag);
+        unborrow!(self.regs.update_flag(Flag::C, !self.regs.get_flag(Flag::C)));
     }
 
     fn scf(&mut self) {
@@ -345,9 +348,11 @@ impl<'a> CpuOps for &'a mut Cpu {
     }
 
     fn halt(&mut self) {
+        println!("HALTED UNTIL NEXT INTERRUPT");
     }
 
     fn stop(&mut self) {
+        println!("STOPPED");
     }
 
     fn ei(&mut self) {
@@ -358,52 +363,67 @@ impl<'a> CpuOps for &'a mut Cpu {
 
     // rotate and shift
     fn rlc(&mut self, io: Arg8) {
+        // Rotate left, update carry flag
         let value = self.read_arg8(io);
-        self.regs.update_flag(Flag::C, is_bit_set(value as u16, 7));
+        let msb = value >> 7;
+        let result = (value << 1) + msb;
+        self.write_arg8(io, result);
+        self.regs.update_flag(Flag::Z, result == 0);
+        self.regs.reset_flag(Flag::N);
+        self.regs.reset_flag(Flag::H);
+        self.regs.update_flag(Flag::C, msb == 1);
+    }
+
+    fn rl(&mut self, io: Arg8) {
+        // Rotate left through carry flag (9 bit rotation)
+        let value = self.read_arg8(io);
+        let result = value << 1 + if self.regs.get_flag(Flag::C) { 1 } else { 0 };
+        self.write_arg8(io, result);
+        self.regs.update_flag(Flag::Z, result == 0);
+        self.regs.reset_flag(Flag::N);
+        self.regs.reset_flag(Flag::H);
+        self.regs.update_flag(Flag::C, value & 0x80 == 0x80);
+    }
+
+    fn rrc(&mut self, io: Arg8) {
+        let value = self.read_arg8(io);
+        let lsb = value & 0x1;
+        let result = (value >> 1) + (lsb << 7);
+        self.write_arg8(io, result);
+        self.regs.update_flag(Flag::Z, result == 0);
+        self.regs.reset_flag(Flag::N);
+        self.regs.reset_flag(Flag::H);
+        self.regs.update_flag(Flag::C, lsb == 1);
+    }
+
+    fn rr(&mut self, io: Arg8) {
+        let value = self.read_arg8(io);
+        let result = (value >> 1) + if self.regs.get_flag(Flag::C) { 0x80 } else { 0 };
+        self.write_arg8(io, result);
+        self.regs.update_flag(Flag::Z, result == 0);
+        self.regs.reset_flag(Flag::N);
+        self.regs.reset_flag(Flag::H);
+        self.regs.update_flag(Flag::C, value & 0x1 == 0x1);
+    }
+
+    fn sla(&mut self, io: Arg8) {
+        let value = self.read_arg8(io);
         let result = value << 1;
         self.write_arg8(io, result);
         self.regs.update_flag(Flag::Z, result == 0);
         self.regs.reset_flag(Flag::N);
         self.regs.reset_flag(Flag::H);
-    }
-
-    fn rl(&mut self, io: Arg8) {
-        // TODO(David): Spec is ambiguous again, what's the difference between RL and RLC?
-        self.rlc(io);
-    }
-
-    fn rrc(&mut self, io: Arg8) {
-        let value = self.read_arg8(io);
-        self.regs.update_flag(Flag::C, is_bit_set(value as u16, 0));
-        let result = value >> 1;
-        self.write_arg8(io, result);
-        self.regs.update_flag(Flag::Z, result == 0);
-        self.regs.reset_flag(Flag::N);
-        self.regs.reset_flag(Flag::H);
-    }
-
-    fn rr(&mut self, io: Arg8) {
-        // TODO(David): Spec is ambiguous again, what's the difference between RR and RRC?
-        self.rrc(io);
-    }
-
-    fn sla(&mut self, io: Arg8) {
-        let result = (self.read_arg8(io) as u16) << 1;
-        self.write_arg8(io, result as u8);
-        self.regs.update_flag(Flag::Z, result == 0);
-        self.regs.reset_flag(Flag::N);
-        self.regs.reset_flag(Flag::H);
-        self.regs.update_flag(Flag::C, is_bit_set(result, 8));
+        self.regs.update_flag(Flag::C, value & 0x80 == 0x80);
     }
 
     fn sra(&mut self, io: Arg8) {
         let value = self.read_arg8(io);
-        self.regs.update_flag(Flag::C, is_bit_set(value as u16, 0));
         let result = value >> 1;
         self.write_arg8(io, result);
         self.regs.update_flag(Flag::Z, result == 0);
         self.regs.reset_flag(Flag::N);
         self.regs.reset_flag(Flag::H);
+        self.regs.update_flag(Flag::C, value & 0x1 == 0x1);
     }
 
     fn swap(&mut self, io: Arg8) {
