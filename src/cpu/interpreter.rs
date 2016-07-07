@@ -47,7 +47,7 @@ impl Fetcher for Cpu {
 }
     
 // Helper function to get a single bit
-fn get_flag_bit(value: u16, bit: u8) -> bool {
+fn is_bit_set(value: u16, bit: u8) -> bool {
     ((value >> bit) & 0x1) == 1
 }
 
@@ -157,20 +157,24 @@ impl<'a> CpuOps for &'a mut Cpu {
         self.write_arg16(o, value);
     }
 
-    fn ld16_hlsp(&mut self, offset: i8) {
-        let value = if offset < 0 {
-            self.regs.sp - (offset as u16)
+    fn ldhl16(&mut self, offset: i8) {
+        let result: u16 = if offset < 0 {
+            self.regs.sp - (-offset as u16)
         } else {
             self.regs.sp + (offset as u16)
         };
-        write_reg_pair!(self.regs.h, self.regs.l, value);
+        write_reg_pair!(self.regs.h, self.regs.l, result);
+        self.regs.reset_flag(Flag::Z);
+        self.regs.reset_flag(Flag::N);
+        // TODO(David): Why does this work?
+        let temp: u16 = read_reg_pair!(self.regs.h, self.regs.l) ^ self.regs.sp ^ result;
+        self.regs.update_flag(Flag::H, temp & 0x10 == 0x10);
+        self.regs.update_flag(Flag::C, temp & 0x100 == 0x100);
     }
 
-    // TODO(David): Should the stack pointer be decremented before or after reading from memory?
     fn push(&mut self, i: Arg16) {
-        let sp = self.regs.sp;
         let content = self.read_arg16(i);
-        self.mem_write_u16(sp, content);
+        unborrow!(self.mem_write_u16(self.regs.sp, content));
         self.regs.sp -= 2;
     }
 
@@ -181,41 +185,47 @@ impl<'a> CpuOps for &'a mut Cpu {
     }
 
     fn add(&mut self, i: Arg8) {
-        let result = self.regs.a as u16 + self.read_arg8(i) as u16;
+        let operand: u8 = self.read_arg8(i);
+        let result: u16 = self.regs.a as u16 + operand as u16;
         self.regs.a = result as u8;
         self.regs.update_flag(Flag::Z, result == 0);
         self.regs.reset_flag(Flag::N);
-        self.regs.update_flag(Flag::H, get_flag_bit(result, 4));
-        self.regs.update_flag(Flag::C, get_flag_bit(result, 8));
+        unborrow!(self.regs.update_flag(Flag::H, (self.regs.a & 0xF + operand & 0xF) > 0xF));
+        self.regs.update_flag(Flag::C, result > 0xFF);
     }
 
     fn adc(&mut self, i: Arg8) {
-        let result =
-            self.regs.a as u16 +
-            self.read_arg8(i) as u16 +
-            if self.regs.get_flag(Flag::C) { 1 } else { 0 };
+        let operand: u8 = self.read_arg8(i);
+        let carry: u8 = if self.regs.get_flag(Flag::C) { 1 } else { 0 };
+        let result: u16 = self.regs.a as u16 + operand as u16 + carry as u16;
         self.regs.a = result as u8;
         self.regs.update_flag(Flag::Z, result == 0);
         self.regs.reset_flag(Flag::N);
-        self.regs.update_flag(Flag::H, get_flag_bit(result, 4));
-        self.regs.update_flag(Flag::C, get_flag_bit(result, 8));
+        unborrow!(self.regs.update_flag(Flag::H, (self.regs.a & 0xF + operand & 0xF) > 0xF));
+        self.regs.update_flag(Flag::C, result > 0xFF);
     }
 
     fn sub(&mut self, i: Arg8) {
-        let result = self.regs.a as u16 - self.read_arg8(i) as u16;
-        self.regs.a = result as u8;
-
-        // TODO(David): Flags
+        let operand: u8 = self.read_arg8(i);
+        let result: u8 = self.regs.a - operand;
+        self.regs.a = result;
+        self.regs.update_flag(Flag::Z, result == 0);
+        self.regs.set_flag(Flag::N);
+        unborrow!(self.regs.update_flag(Flag::H, (self.regs.a & 0xF) < (operand & 0xF)));
+        unborrow!(self.regs.update_flag(Flag::C, self.regs.a < operand));
     }
 
     fn sbc(&mut self, i: Arg8) {
-        let result =
-            self.regs.a as u16 -
-            self.read_arg8(i) as u16 -
-            if self.regs.get_flag(Flag::C) { 1 } else { 0 };
-        self.regs.a = result as u8;
-
-        // TODO(David): Flags
+        let operand: u8 = self.read_arg8(i);
+        let carry: u8 = if self.regs.get_flag(Flag::C) { 1 } else { 0 };
+        let result: u8 = self.regs.a - operand - carry;
+        self.regs.a = result;
+        self.regs.update_flag(Flag::Z, result == 0);
+        self.regs.set_flag(Flag::N);
+        unborrow!(self.regs.update_flag(Flag::H, (self.regs.a & 0xF) < (operand & 0xF + carry)));
+        // We need to be careful in case operand is 11111111 and carry is 1, therefore casting to
+        // u16 is required to prevent u8 overflow!
+        unborrow!(self.regs.update_flag(Flag::C, (self.regs.a as u16) < (operand as u16 + carry as u16)));
     }
 
     fn and(&mut self, i: Arg8) {
@@ -246,10 +256,10 @@ impl<'a> CpuOps for &'a mut Cpu {
     }
 
     fn cp(&mut self, i: Arg8) {
-        let result = self.regs.a as u16 - self.read_arg8(i) as u16;
-        self.regs.update_flag(Flag::Z, result == 0);
-        self.regs.set_flag(Flag::N);
-        // TODO(David): H and C flags
+        // Reuse sub but preserve register value
+        let old_a = self.regs.a;
+        self.sub(i);
+        self.regs.a = old_a;
     }
 
     fn inc(&mut self, io: Arg8) {
@@ -257,7 +267,7 @@ impl<'a> CpuOps for &'a mut Cpu {
         self.write_arg8(io, result);
         self.regs.update_flag(Flag::Z, result == 0);
         self.regs.reset_flag(Flag::N);
-        self.regs.update_flag(Flag::H, get_flag_bit(result as u16, 3));
+        self.regs.update_flag(Flag::H, (result & 0xF + 1) > 0xF);
     }
 
     fn dec(&mut self, io: Arg8) {
@@ -265,20 +275,19 @@ impl<'a> CpuOps for &'a mut Cpu {
         self.write_arg8(io, result);
         self.regs.update_flag(Flag::Z, result == 0);
         self.regs.set_flag(Flag::N);
-        // TODO(David): H flag
+        self.regs.update_flag(Flag::H, ((result - 1) & 0xF) == 0xF);
     }
 
     fn add16(&mut self, i: Arg16) {
-        let result =
-            read_reg_pair!(self.regs.h, self.regs.l) as u32 +
-            self.read_arg16(i) as u32;
+        let operand: u16 = self.read_arg16(i);
+        let result: u32 = read_reg_pair!(self.regs.h, self.regs.l) as u32 + operand as u32;
         write_reg_pair!(self.regs.h, self.regs.l, result as u16);
         self.regs.reset_flag(Flag::N);
-        self.regs.update_flag(Flag::H, get_flag_bit(result as u16, 12));
-        self.regs.update_flag(Flag::C, get_flag_bit(result as u16, 16));
+        unborrow!(self.regs.update_flag(Flag::H, (self.regs.a & 0xFFF + operand & 0xFFF) > 0xFFF));
+        self.regs.update_flag(Flag::C, result > 0xFFFF);
     }
 
-    fn add16_sp(&mut self, i: u8) {
+    fn add16sp(&mut self, i: i8) {
         //TODO(Csongor): this was not actually setting
         //the stack pointer anyway, so I've ust commented
         //it out for now
@@ -349,7 +358,7 @@ impl<'a> CpuOps for &'a mut Cpu {
     // rotate and shift
     fn rlc(&mut self, io: Arg8) {
         let value = self.read_arg8(io);
-        self.regs.update_flag(Flag::C, get_flag_bit(value as u16, 7));
+        self.regs.update_flag(Flag::C, is_bit_set(value as u16, 7));
         let result = value << 1;
         self.write_arg8(io, result);
         self.regs.update_flag(Flag::Z, result == 0);
@@ -364,7 +373,7 @@ impl<'a> CpuOps for &'a mut Cpu {
 
     fn rrc(&mut self, io: Arg8) {
         let value = self.read_arg8(io);
-        self.regs.update_flag(Flag::C, get_flag_bit(value as u16, 0));
+        self.regs.update_flag(Flag::C, is_bit_set(value as u16, 0));
         let result = value >> 1;
         self.write_arg8(io, result);
         self.regs.update_flag(Flag::Z, result == 0);
@@ -383,12 +392,12 @@ impl<'a> CpuOps for &'a mut Cpu {
         self.regs.update_flag(Flag::Z, result == 0);
         self.regs.reset_flag(Flag::N);
         self.regs.reset_flag(Flag::H);
-        self.regs.update_flag(Flag::C, get_flag_bit(result, 8));
+        self.regs.update_flag(Flag::C, is_bit_set(result, 8));
     }
 
     fn sra(&mut self, io: Arg8) {
         let value = self.read_arg8(io);
-        self.regs.update_flag(Flag::C, get_flag_bit(value as u16, 0));
+        self.regs.update_flag(Flag::C, is_bit_set(value as u16, 0));
         let result = value >> 1;
         self.write_arg8(io, result);
         self.regs.update_flag(Flag::Z, result == 0);
@@ -415,16 +424,13 @@ impl<'a> CpuOps for &'a mut Cpu {
     }
 
     // control
-    fn jp(&mut self, dest: u16, cond: Cond) {
+    fn jp(&mut self, cond: Cond, dest: Arg16) {
     }
 
-    fn jp_hl(&mut self) {
+    fn jr(&mut self, cond: Cond, offset: i8) {
     }
 
-    fn jr(&mut self, offset: u8, cond: Cond) {
-    }
-
-    fn call(&mut self, dest: u16, cond: Cond) {
+    fn call(&mut self, cond: Cond, dest: Arg16) {
     }
 
     fn rst(&mut self, offset: u8) {

@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+#[macro_use] extern crate unborrow;
+
 mod cpu;
 mod machine;
 mod memory;

@@ -71,10 +71,8 @@ pub enum Instruction {
     LDI(Arg8, Arg8),    // LDI out, in
     LDH(Arg8, Arg8),    // LDH out, in
     // 16-bit load
-    LD16(Arg16, Arg16), // LD out, in   (nn -> reg16)
-    LD16SPHL,           // LD SP, HL    (HL -> SP)
-    LDHL16(Arg8),       // LD HL, SP+n  (SP+n -> HL, n is signed)
-    LDSP(Arg16),        // LD (nn), SP  (put SP into addr nn)
+    LD16(Arg16, Arg16), // LD out, in
+    LDHL16(i8),         // LD HL, SP+n  (SP+n -> HL, n is signed)
     PUSH(Arg16),        // PUSH reg     (add contents of reg to stack, SP -= 2)
     POP(Arg16),         // POP reg      (copy contents at SP to reg, SP += 2)
     // 8-bit arithmetic
@@ -90,7 +88,7 @@ pub enum Instruction {
     DEC(Arg8),          // DEC reg
     // 16-bit arithmetic
     ADD16(Arg16),       // ADD HL, in
-    ADDSP(Arg8),        // ADD SP, in
+    ADD16SP(i8),        // ADD SP, n    (where n is signed)
     INC16(Arg16),       // INC reg
     DEC16(Arg16),       // DEC reg
     // misc
@@ -117,9 +115,9 @@ pub enum Instruction {
     SET(u8, Arg8),      // SET b, reg
     RES(u8, Arg8),      // RES b, reg
     // control
-    JP(Cond, Arg8),     // JP nn / JP cond nn
-    JR(Cond, Arg8),     // JR nn / JR cond nn
-    CALL(Cond, Arg8),   // CALL nn / CALL cond nn
+    JP(Cond, Arg16),    // JP nn / JP cond nn / JP (HL)
+    JR(Cond, i8),       // JR nn / JR cond nn
+    CALL(Cond, Arg16),  // CALL nn / CALL cond nn
     RST(u8),            // RST n
     RET(Cond),          // RET / RET cond
     RETI,               // RETI
@@ -137,7 +135,7 @@ pub trait CpuOps {
     fn ldh(&mut self, o: Arg8, i: Arg8);
     // 16-bit load
     fn ld16(&mut self, o: Arg16, i: Arg16);
-    fn ld16_hlsp(&mut self, offset: i8);
+    fn ldhl16(&mut self, offset: i8);
     fn push(&mut self, i: Arg16);
     fn pop(&mut self, o: Arg16);
     // 8-bit arithmetic
@@ -153,7 +151,7 @@ pub trait CpuOps {
     fn dec(&mut self, io: Arg8);
     // 16-bit arithmetic
     fn add16(&mut self, i: Arg16);
-    fn add16_sp(&mut self, i: u8);
+    fn add16sp(&mut self, i: i8);
     fn inc16(&mut self, io: Arg16);
     fn dec16(&mut self, io: Arg16);
     // misc
@@ -180,18 +178,64 @@ pub trait CpuOps {
     fn set(&mut self, bit_id: u8, o: Arg8);
     fn res(&mut self, bit_id: u8, o: Arg8);
     // control
-    fn jp(&mut self, dest: u16, cond: Cond);        // JP n
-    fn jp_hl(&mut self);                            // JP (HL)
-    fn jr(&mut self, offset: u8, cond: Cond);       // TODO(David): is this a signed offset?
-    fn call(&mut self, dest: u16, cond: Cond);
+    fn jp(&mut self, cond: Cond, dest: Arg16);
+    fn jr(&mut self, cond: Cond, offset: i8);
+    fn call(&mut self, cond: Cond, dest: Arg16);
     fn rst(&mut self, offset: u8);
     fn ret(&mut self, cond: Cond);
     fn reti(&mut self);
 }
 
-// Dispatch function call
-pub fn dispatch<T>(instr: Instruction, ops: &CpuOps) {
+// Dispatch an instruction to a trait object
+pub fn dispatch(instr: Instruction, ops: &mut CpuOps) {
+    use self::Instruction::*;
     match instr {
-        _ => panic!("Unimplemented")
+        LD(o, i)    => ops.ld(o, i),
+        LDD(o, i)   => ops.ldd(o, i),
+        LDI(o, i)   => ops.ldi(o, i),
+        LDH(o, i)   => ops.ldh(o, i),
+        LD16(o, i)  => ops.ld16(o, i),
+        LDHL16(v)   => ops.ldhl16(v),
+        PUSH(i)     => ops.push(i),
+        POP(o)      => ops.pop(o),
+        ADD(i)      => ops.add(i),
+        ADC(i)      => ops.adc(i),
+        SUB(i)      => ops.sub(i),
+        SBC(i)      => ops.sbc(i),
+        AND(i)      => ops.and(i),
+        OR(i)       => ops.or(i),
+        XOR(i)      => ops.xor(i),
+        CP(i)       => ops.cp(i),
+        INC(io)     => ops.inc(io),
+        DEC(io)     => ops.dec(io),
+        ADD16(i)    => ops.add16(i),
+        ADD16SP(v)  => ops.add16sp(v),
+        INC16(io)   => ops.inc16(io),
+        DEC16(io)   => ops.dec16(io),
+        NOP         => ops.nop(),
+        DAA         => ops.daa(),
+        CPL         => ops.cpl(),
+        CCF         => ops.ccf(),
+        SCF         => ops.scf(),
+        HALT        => ops.halt(),
+        STOP        => ops.stop(),
+        EI          => ops.ei(),
+        DI          => ops.di(),
+        RLC(io)     => ops.rlc(io),
+        RL(io)      => ops.rl(io),
+        RRC(io)     => ops.rrc(io),
+        RR(io)      => ops.rr(io),
+        SLA(io)     => ops.sla(io),
+        SRA(io)     => ops.sra(io),
+        SWAP(io)    => ops.swap(io),
+        SRL(io)     => ops.srl(io),
+        JP(c, i)    => ops.jp(c, i),
+        JR(c, v)    => ops.jr(c, v),
+        CALL(c, i)  => ops.call(c, i),
+        RST(v)      => ops.rst(v),
+        RET(c)      => ops.ret(c),
+        RETI        => ops.reti(),
+
+        _ => panic!("Invalid instruction {:?}", instr)
     }
 }
