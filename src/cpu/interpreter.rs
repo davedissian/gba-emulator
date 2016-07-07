@@ -531,10 +531,9 @@ impl Cpu {
 
     pub fn tick(&mut self) {
         let instr = self.fetch_instr();
-
-        println!("{:?}", instr);
-
-        // TODO: implement execution
+        println!("{:x} {:?}", self.regs.pc, instr);
+        //self.dispatch(instr);
+        (&mut (*self)).dispatch(instr); // <- wtf?
 
         // Stop execution for the lols
         if self.regs.pc > 256 {
@@ -582,7 +581,7 @@ impl Cpu {
         println!("- Zero: {}", self.regs.get_flag(Flag::Z));
         println!("- Add/Sub: {}", self.regs.get_flag(Flag::N));
         println!("- Half Carry: {}", self.regs.get_flag(Flag::H));
-        println!("- Carry Flag {}", self.regs.get_flag(Flag::C));
+        println!("- Carry Flag: {}", self.regs.get_flag(Flag::C));
     }
 }
 
