@@ -15,8 +15,8 @@ pub struct Cpu {
 
 // Registers
 macro_rules! read_reg_pair {
-    ($h:expr, $l:expr) => {
-        (($h as u16) << 8) | $l as u16
+    ($regs:expr, $h:ident, $l:ident) => {
+        (($regs.$h as u16) << 8) | $regs.$l as u16
     };
 }
 
@@ -29,9 +29,9 @@ macro_rules! write_reg_pair {
 
 fn get_address(cpu: &Cpu, a: &IndirectAddr) -> u16 {
     match *a {
-        IndirectAddr::BC => read_reg_pair!(cpu.regs.b, cpu.regs.c),
-        IndirectAddr::DE => read_reg_pair!(cpu.regs.d, cpu.regs.e),
-        IndirectAddr::HL => read_reg_pair!(cpu.regs.h, cpu.regs.l),
+        IndirectAddr::BC => read_reg_pair!(cpu.regs, b, c),
+        IndirectAddr::DE => read_reg_pair!(cpu.regs, d, e),
+        IndirectAddr::HL => read_reg_pair!(cpu.regs, h, l),
         IndirectAddr::C => cpu.regs.c as u16 + 0xFF00,
         IndirectAddr::Imm8(n) => n as u16 + 0xFF00,
         IndirectAddr::Imm16(n) => n
@@ -101,10 +101,10 @@ impl<'a> CpuOps for &'a mut Cpu {
     fn read_arg16(&self, arg: Arg16) -> u16 {
         match arg {
             Arg16::Reg(r) => match r {
-                Reg16::AF => read_reg_pair!(self.regs.a, self.regs.f),
-                Reg16::BC => read_reg_pair!(self.regs.b, self.regs.c),
-                Reg16::DE => read_reg_pair!(self.regs.d, self.regs.e),
-                Reg16::HL => read_reg_pair!(self.regs.h, self.regs.l),
+                Reg16::AF => read_reg_pair!(self.regs, a, f),
+                Reg16::BC => read_reg_pair!(self.regs, b, c),
+                Reg16::DE => read_reg_pair!(self.regs, d, e),
+                Reg16::HL => read_reg_pair!(self.regs, h, l),
                 Reg16::SP => self.regs.sp,
                 Reg16::PC => self.regs.pc,
             },
@@ -167,7 +167,7 @@ impl<'a> CpuOps for &'a mut Cpu {
         self.regs.reset_flag(Flag::Z);
         self.regs.reset_flag(Flag::N);
         // TODO(David): Why does this work?
-        let temp: u16 = read_reg_pair!(self.regs.h, self.regs.l) ^ self.regs.sp ^ result;
+        let temp: u16 = read_reg_pair!(self.regs, h, l) ^ self.regs.sp ^ result;
         self.regs.update_flag(Flag::H, temp & 0x10 == 0x10);
         self.regs.update_flag(Flag::C, temp & 0x100 == 0x100);
     }
@@ -280,10 +280,11 @@ impl<'a> CpuOps for &'a mut Cpu {
 
     fn add16(&mut self, i: Arg16) {
         let operand: u16 = self.read_arg16(i);
-        let result: u32 = read_reg_pair!(self.regs.h, self.regs.l) as u32 + operand as u32;
+        let result: u32 = read_reg_pair!(self.regs, h, l) as u32 + operand as u32;
         write_reg_pair!(self.regs.h, self.regs.l, result as u16);
         self.regs.reset_flag(Flag::N);
-        unborrow!(self.regs.update_flag(Flag::H, (self.regs.a & 0xFFF + operand & 0xFFF) > 0xFFF));
+        unborrow!(self.regs.update_flag(Flag::H, (read_reg_pair!(self.regs, h, l) & 0xFFF +
+                                                  operand & 0xFFF) > 0xFFF));
         self.regs.update_flag(Flag::C, result > 0xFFFF);
     }
 
@@ -505,8 +506,9 @@ mod test {
     use std::cell::RefCell;
     use memory::Memory;
     use super::*;
-    use cpu::registers::*;
     use cpu::ops::*;
+    use cpu::registers::Reg8::*;
+    use cpu::registers::Reg16::*;
 
     fn test_u8() -> u8 {
         144u8
@@ -521,20 +523,20 @@ mod test {
     }
 
     #[test]
-    fn load_from_reg_a_to_b() {
+    fn ld_a_then_b() {
         let mut cpu = &mut init_cpu();
-        cpu.load(Imm8(test_u8()), Reg8::A);
-        cpu.load(Reg8::A, Reg8::B);
+        cpu.ld(Arg8::Reg(A), Arg8::Imm(test_u8()));
+        cpu.ld(Arg8::Reg(B), Arg8::Reg(A));
         assert_eq!(cpu.regs.a, test_u8());
         assert_eq!(cpu.regs.a, cpu.regs.b);
     }
 
     #[test]
-    fn load_from_reg_bc_to_de() {
+    fn ld16_bc_then_de() {
         let mut cpu = &mut init_cpu();
-        cpu.load16(Imm16(test_u16()), Reg16::BC);
-        cpu.load16(Reg16::BC, Reg16::DE);
-        assert_eq!(Reg16::BC.read(cpu), test_u16());
-        assert_eq!(Reg16::BC.read(cpu), Reg16::DE.read(cpu));
+        cpu.ld16(Arg16::Reg(BC), Arg16::Imm(test_u16()));
+        cpu.ld16(Arg16::Reg(DE), Arg16::Reg(BC));
+        assert_eq!(read_reg_pair!(cpu.regs, b, c), test_u16());
+        assert_eq!(read_reg_pair!(cpu.regs, b, c), read_reg_pair!(cpu.regs, d, e));
     }
 }
