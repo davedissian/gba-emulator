@@ -10,7 +10,7 @@ use cpu::fetcher::*;
 pub struct Cpu {
     pub running: bool,
     memory: Rc<RefCell<Memory>>,
-    regs: Registers
+    pub regs: Registers
 }
 
 // Registers
@@ -531,7 +531,7 @@ impl Cpu {
 
     pub fn tick(&mut self) {
         let instr = self.fetch_instr();
-        println!("{:x} {:?}", self.regs.pc, instr);
+        println!("0x{:04X} {:?}", self.regs.pc, instr);
         self.dispatch(instr);
 
         // Stop execution for the lols
@@ -573,9 +573,9 @@ impl Cpu {
 
     pub fn dump_state(&self) {
         println!("Registers:");
-        println!("- PC: {:04x} SP: {:04x} ", self.regs.pc, self.regs.sp);
-        println!("- A: {:02x} F: {:02x} B: {:02x} C: {:02x}", self.regs.a, self.regs.f, self.regs.b, self.regs.c);
-        println!("- D: {:02x} E: {:02x} H: {:02x} L: {:02x}", self.regs.d, self.regs.e, self.regs.h, self.regs.l);
+        println!("- PC: {:04X} SP: {:04X} ", self.regs.pc, self.regs.sp);
+        println!("- A: {:02X} F: {:02X} B: {:02X} C: {:02X}", self.regs.a, self.regs.f, self.regs.b, self.regs.c);
+        println!("- D: {:02X} E: {:02X} H: {:02X} L: {:02X}", self.regs.d, self.regs.e, self.regs.h, self.regs.l);
         println!("Flags:");
         println!("- Zero: {}", self.regs.get_flag(Flag::Z));
         println!("- Add/Sub: {}", self.regs.get_flag(Flag::N));
