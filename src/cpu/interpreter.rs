@@ -604,7 +604,7 @@ mod test {
     }
 
     fn init_cpu() -> Cpu {
-        Cpu::new(Rc::new(RefCell::new(Memory::new_blank())))
+        Cpu::new(Rc::new(RefCell::new(Memory::new())))
     }
 
     #[test]
