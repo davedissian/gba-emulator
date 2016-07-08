@@ -3,7 +3,7 @@ use cartridge::Cartridge;
 pub struct Memory {
     pub boot_mode: bool,
 
-    cartridge: Cartridge,
+    cartridge: Option<Cartridge>,
 
     // Internal RAM structures
     bios: [u8; 0x100],
@@ -38,16 +38,12 @@ const CGB_HDMA_DEST_LOW_REG: u16        = 0xFF54;
 const CGB_HDMA_REG: u16                 = 0xFF55;
 
 impl Memory {
-    pub fn new(rom: &str) -> Memory {
-        let cartridge = match Cartridge::load(rom) {
-            Ok(c) => c,
-            Err(e) => panic!("ERROR: {}", e)
-        };
+    pub fn new() -> Memory {
         Memory {
             boot_mode: true,
             bios: [0u8; 0x100],
 
-            cartridge: cartridge,
+            cartridge: None,
             vram: [0u8; 8192],
             bank: [0u8; 8192],
             internal: [0u8; 8192],
@@ -67,29 +63,9 @@ impl Memory {
         }
     }
 
-    pub fn new_blank() -> Memory {
-        Memory {
-            boot_mode: true,
-            bios: [0u8; 0x100],
-
-            cartridge: Cartridge::new_blank(),
-            vram: [0u8; 8192],
-            bank: [0u8; 8192],
-            internal: [0u8; 8192],
-            oam: [0u8; 160],
-            zero_page_ram: [0u8; 126],
-
-            dmg_status: 0,
-            interrupts_enabled: 0,
-
-            cgb_enabled: false,
-            cgb_wram_bank_select: 0,
-            cgb_double_speed_prep: 0,
-            cgb_hdma_src_low: 0,
-            cgb_hdma_src_high: 0,
-            cgb_hdma_dest_low: 0,
-            cgb_hdma_dest_high: 0
-        }
+    // Load cartridge
+    pub fn load_cartridge(&mut self, cartridge: Cartridge) {
+        self.cartridge = Some(cartridge);
     }
 
     // Load BIOS
@@ -108,7 +84,11 @@ impl Memory {
                 if addr < 0x100 && self.boot_mode {
                     self.bios[addr as usize]
                 } else {
-                    self.cartridge.rom[addr as usize]
+                    if let Some(ref c) = self.cartridge {
+                        c.rom[addr as usize]
+                    } else {
+                        panic!("ERROR: No cartridge is loaded!");
+                    }
                 }
             },
             0x8000...0x9FFF => self.vram[addr as usize - 0x8000],

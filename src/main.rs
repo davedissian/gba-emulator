@@ -11,6 +11,7 @@ use std::cell::RefCell;
 
 use cpu::interpreter::Cpu;
 use memory::Memory;
+use cartridge::Cartridge;
 
 pub struct GB {
     cpu: Cpu,
@@ -18,11 +19,18 @@ pub struct GB {
 }
 
 impl GB {
-    pub fn new(rom: &str) -> GB {
-        let m = Rc::new(RefCell::new(Memory::new(rom)));
+    pub fn new() -> GB {
+        let m = Rc::new(RefCell::new(Memory::new()));
         GB {
             cpu: Cpu::new(m.clone()),
             memory: m.clone()
+        }
+    }
+
+    pub fn load(&mut self, rom: &str) {
+        match Cartridge::load(rom) {
+            Ok(c) => self.memory.borrow_mut().load_cartridge(c),
+            Err(e) => println!("WARNING: Cartridge failed to load. Reason: {}", e)
         }
     }
 
@@ -48,7 +56,8 @@ impl GB {
 }
 
 fn main() {
-    let mut device = GB::new("roms/pokemon-gold.gbc");
+    let mut device = GB::new();
+    device.load("roms/pokemon-gold.gbc");
     device.boot();
     device.run();
 }

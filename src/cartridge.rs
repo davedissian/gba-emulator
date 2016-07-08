@@ -7,7 +7,7 @@ pub struct Cartridge {
 }
 
 impl Cartridge {
-    pub fn new_blank() -> Cartridge {
+    pub fn new() -> Cartridge {
         Cartridge {
             rom: vec!(),
             title: String::new(),
