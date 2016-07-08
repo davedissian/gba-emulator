@@ -16,6 +16,15 @@ pub struct Memory {
     // Registers
     dmg_status: u8,
     interrupts_enabled: u8,
+
+    // Gameboy Colour specifics
+    cgb_enabled: bool,
+    cgb_wram_bank_select: u8,
+    cgb_double_speed_prep: u8,
+    cgb_hdma_src_high: u8,
+    cgb_hdma_src_low: u8,
+    cgb_hdma_dest_high: u8,
+    cgb_hdma_dest_low: u8
 }
 
 const DMG_STATUS_REG: u16               = 0xFF50;
@@ -35,31 +44,51 @@ impl Memory {
             Err(e) => panic!("ERROR: {}", e)
         };
         Memory {
+            boot_mode: true,
             bios: [0u8; 0x100],
+
             cartridge: cartridge,
             vram: [0u8; 8192],
             bank: [0u8; 8192],
             internal: [0u8; 8192],
             oam: [0u8; 160],
             zero_page_ram: [0u8; 126],
+
             dmg_status: 0,
             interrupts_enabled: 0,
-            boot_mode: true
+
+            cgb_enabled: false,
+            cgb_wram_bank_select: 0,
+            cgb_double_speed_prep: 0,
+            cgb_hdma_src_low: 0,
+            cgb_hdma_src_high: 0,
+            cgb_hdma_dest_low: 0,
+            cgb_hdma_dest_high: 0
         }
     }
 
     pub fn new_blank() -> Memory {
         Memory {
+            boot_mode: true,
             bios: [0u8; 0x100],
+
             cartridge: Cartridge::new_blank(),
             vram: [0u8; 8192],
             bank: [0u8; 8192],
             internal: [0u8; 8192],
             oam: [0u8; 160],
             zero_page_ram: [0u8; 126],
+
             dmg_status: 0,
             interrupts_enabled: 0,
-            boot_mode: true
+
+            cgb_enabled: false,
+            cgb_wram_bank_select: 0,
+            cgb_double_speed_prep: 0,
+            cgb_hdma_src_low: 0,
+            cgb_hdma_src_high: 0,
+            cgb_hdma_dest_low: 0,
+            cgb_hdma_dest_high: 0
         }
     }
 
@@ -87,7 +116,7 @@ impl Memory {
             0xC000...0xDFFF => self.internal[addr as usize - 0xC000],
             0xE000...0xFDFF => self.internal[addr as usize - 0xE000],
             0xFE00...0xFE9F => self.oam[addr as usize - 0xFE00],
-            0xFF4C...0xFF79 => self.read_u8_register(addr),
+            0xFF4C...0xFF7F => self.read_u8_register(addr),
             0xFF80...0xFFFE => self.zero_page_ram[addr as usize - 0xFF80],
             0xFFFF => self.interrupts_enabled,
             _ => panic!("ERROR: Out of bounds memory read. Addr = {:x}", addr),
@@ -107,7 +136,7 @@ impl Memory {
             0xC000...0xDFFF => self.internal[addr as usize - 0xC000] = value,
             0xE000...0xFDFF => self.internal[addr as usize - 0xE000] = value,
             0xFE00...0xFE9F => self.oam[addr as usize - 0xFE00] = value,
-            0xFF4C...0xFF79 => self.write_u8_register(addr, value),
+            0xFF4C...0xFF7F => self.write_u8_register(addr, value),
             0xFF80...0xFFFE => self.zero_page_ram[addr as usize - 0xFF80] = value,
             0xFFFF => self.interrupts_enabled = value,
             _ => panic!("ERROR: Out of bounds memory write. Addr = {:x}", addr),
@@ -119,35 +148,45 @@ impl Memory {
         self.write_u8(addr + 1, ((value >> 8) & 0xFF) as u8);
     }
 
-
     // Registers
     fn read_u8_register(&self, addr: u16) -> u8{
-        match addr {
-	        DMG_STATUS_REG              => self.dmg_status, 
-            CGB_INFRARED_PORT_REG       => 0,
-            CGB_WRAM_BANK_SELECT        => 0,
-            CGB_DOUBLE_SPEED_PREP_REG   => 0,
-            CGB_HDMA_SOURCE_HIGH_REG    => 0,
-            CGB_HDMA_SOURCE_LOW_REG     => 0,
-            CGB_HDMA_DEST_HIGH_REG      => 0,
-            CGB_HDMA_DEST_LOW_REG       => 0,
-            CGB_HDMA_REG                => 0,
-            _                           => panic!("Unknown MMU register: {}", addr)
+        if addr == DMG_STATUS_REG {
+            self.dmg_status
+        } else if self.cgb_enabled {
+            match addr {
+                CGB_INFRARED_PORT_REG       => { println!("WARNING: CGB Infrared Unsupported"); 0 },
+                CGB_WRAM_BANK_SELECT        => self.cgb_wram_bank_select,
+                CGB_DOUBLE_SPEED_PREP_REG   => self.cgb_double_speed_prep,
+                CGB_HDMA_SOURCE_HIGH_REG    => self.cgb_hdma_src_high,
+                CGB_HDMA_SOURCE_LOW_REG     => self.cgb_hdma_src_low,
+                CGB_HDMA_DEST_HIGH_REG      => self.cgb_hdma_dest_high,
+                CGB_HDMA_DEST_LOW_REG       => self.cgb_hdma_dest_low,
+                CGB_HDMA_REG                => { println!("WARNING: HDMA unsupported"); 0 },
+                _                           => panic!("Unknown MMU register: {}", addr)
+            }
+        } else {
+            println!("WARNING: Cannot read from 0x{:08X} (CGB register) in non-CGB mode!", addr);
+            0
         }
     }
     
     fn write_u8_register(&mut self, addr: u16, value: u8) {
-        match addr {
-	        DMG_STATUS_REG              => self.dmg_status = value, 
-            CGB_INFRARED_PORT_REG       => {},
-            CGB_WRAM_BANK_SELECT        => {},
-            CGB_DOUBLE_SPEED_PREP_REG   => {},
-            CGB_HDMA_SOURCE_HIGH_REG    => {},
-            CGB_HDMA_SOURCE_LOW_REG     => {},
-            CGB_HDMA_DEST_HIGH_REG      => {},
-            CGB_HDMA_DEST_LOW_REG       => {},
-            CGB_HDMA_REG                => {},
-            _                           => panic!("Unknown MMU register: {}", addr)
+        if addr == DMG_STATUS_REG {
+            self.dmg_status = value;
+        } else if self.cgb_enabled {
+            match addr {
+                CGB_INFRARED_PORT_REG       => println!("WARNING: CGB Infrared Unsupported"),
+                CGB_WRAM_BANK_SELECT        => self.cgb_wram_bank_select = value,
+                CGB_DOUBLE_SPEED_PREP_REG   => self.cgb_double_speed_prep = value,
+                CGB_HDMA_SOURCE_HIGH_REG    => self.cgb_hdma_src_high = value,
+                CGB_HDMA_SOURCE_LOW_REG     => self.cgb_hdma_src_low = value,
+                CGB_HDMA_DEST_HIGH_REG      => self.cgb_hdma_dest_high = value,
+                CGB_HDMA_DEST_LOW_REG       => self.cgb_hdma_dest_low = value,
+                CGB_HDMA_REG                => println!("WARNING: HDMA unsupported"),
+                _                           => panic!("Unknown MMU register: {}", addr)
+            }
+        } else {
+            println!("WARNING: Cannot write to 0x{:08X} (CGB register) in non-CGB mode!", addr);
         }
     }
 }
