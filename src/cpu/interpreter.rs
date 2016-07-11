@@ -10,7 +10,9 @@ use cpu::fetcher::*;
 pub struct Cpu {
     pub running: bool,
     memory: Rc<RefCell<Memory>>,
-    pub regs: Registers
+    pub regs: Registers,
+
+    interrupts_enabled: bool
 }
 
 // Registers
@@ -38,6 +40,75 @@ fn get_address(cpu: &Cpu, a: &IndirectAddr) -> u16 {
     }
 }
 
+impl Cpu {
+    pub fn new(memory: Rc<RefCell<Memory>>) -> Cpu {
+        Cpu {
+            running: true,
+            memory: memory,
+            regs: Registers::new(),
+            interrupts_enabled: false
+        }
+    }
+
+    pub fn tick(&mut self) {
+        let instr = self.fetch_instr();
+        println!("0x{:04X} {:?}", self.regs.pc, instr);
+        self.dispatch(instr);
+    }
+
+    // Instruction helpers
+    fn check_condition(&self, cond: Cond) -> bool {
+        match cond {
+            Cond::None => true,
+            Cond::NZ => !self.regs.get_flag(Flag::Z),
+            Cond::Z => self.regs.get_flag(Flag::Z),
+            Cond::NC => !self.regs.get_flag(Flag::C),
+            Cond::C => self.regs.get_flag(Flag::C)
+        }
+    }
+
+    fn push_u16(&mut self, value: u16) {
+        unborrow!(self.mem_write_u16(self.regs.sp, value));
+        self.regs.sp -= 2;
+    }
+
+    fn pop_u16(&mut self) -> u16 {
+        self.regs.sp += 2;
+        self.mem_read_u16(self.regs.sp)
+    }
+
+    // Memory reading helper functions
+    fn mem_read_u8(&self, addr: u16) -> u8 {
+        self.memory.borrow().read_u8(addr)
+    }
+
+    fn mem_read_u16(&self, addr: u16) -> u16 {
+        let l = self.mem_read_u8(addr);
+        let h = self.mem_read_u8(addr + 1);
+        ((l as u16) << 8) | (h as u16)
+    }
+
+    fn mem_write_u8(&mut self, addr: u16, data: u8) {
+        self.memory.borrow_mut().write_u8(addr, data);
+    }
+
+    fn mem_write_u16(&mut self, addr: u16, data: u16) {
+        self.memory.borrow_mut().write_u16(addr, data);
+    }
+
+    pub fn dump_state(&self) {
+        println!("Registers:");
+        println!("- PC: {:04X} SP: {:04X} ", self.regs.pc, self.regs.sp);
+        println!("- A: {:02X} F: {:02X} B: {:02X} C: {:02X}", self.regs.a, self.regs.f, self.regs.b, self.regs.c);
+        println!("- D: {:02X} E: {:02X} H: {:02X} L: {:02X}", self.regs.d, self.regs.e, self.regs.h, self.regs.l);
+        println!("Flags:");
+        println!("- Zero: {}", self.regs.get_flag(Flag::Z));
+        println!("- Add/Sub: {}", self.regs.get_flag(Flag::N));
+        println!("- Half Carry: {}", self.regs.get_flag(Flag::H));
+        println!("- Carry Flag: {}", self.regs.get_flag(Flag::C));
+    }
+}
+
 impl Fetcher for Cpu {
     fn fetch_word(&mut self) -> u8 {
         let byte = self.mem_read_u8(self.regs.pc);
@@ -47,7 +118,6 @@ impl Fetcher for Cpu {
 }
     
 // Interpreter implementation of the CPU ops defined in the ops module
-#[allow(unused_variables)]
 impl CpuOps for Cpu {
     fn read_arg8(&self, arg: Arg8) -> u8 {
         match arg {
@@ -183,13 +253,11 @@ impl CpuOps for Cpu {
 
     fn push(&mut self, i: Arg16) {
         let content = self.read_arg16(i);
-        unborrow!(self.mem_write_u16(self.regs.sp, content));
-        self.regs.sp -= 2;
+        self.push_u16(content);
     }
 
     fn pop(&mut self, o: Arg16) {
-        self.regs.sp += 2;
-        let value = self.mem_read_u16(self.regs.sp);
+        let value = self.pop_u16();
         self.write_arg16(o, value);
     }
 
@@ -365,9 +433,11 @@ impl CpuOps for Cpu {
     }
 
     fn ei(&mut self) {
+        self.interrupts_enabled = true;
     }
 
     fn di(&mut self) {
+        self.interrupts_enabled = false;
     }
 
     // rotate and shift
@@ -497,90 +567,25 @@ impl CpuOps for Cpu {
     fn call(&mut self, cond: Cond, dest: Arg16) {
         // CALL is implemented as PUSH SP; JP cond dest
         if self.check_condition(cond) {
-            unborrow!(self.push(Arg16::Imm(self.regs.pc + 3))); // CALL is 3 bytes
+            unborrow!(self.push_u16(self.regs.pc + 3)); // CALL is 3 bytes
             self.jp(Cond::None, dest);
         }
     }
 
     fn rst(&mut self, offset: u8) {
-        unborrow!(self.push(Arg16::Imm(self.regs.pc)));
+        unborrow!(self.push_u16(self.regs.pc + 2)); // RST is 2 bytes? TODO(David): Test
         self.jp(Cond::None, Arg16::Imm(offset as u16));
     }
 
     fn ret(&mut self, cond: Cond) {
         if self.check_condition(cond) {
-            self.regs.sp += 2;
-            self.regs.pc = self.mem_read_u16(self.regs.sp);
+            self.regs.pc = self.pop_u16();
         }
     }
 
     fn reti(&mut self) {
         self.ret(Cond::None);
         self.ei();
-    }
-}
-
-impl Cpu {
-    pub fn new(memory: Rc<RefCell<Memory>>) -> Cpu {
-        Cpu {
-            running: true,
-            memory: memory,
-            regs: Registers::new()
-        }
-    }
-
-    pub fn tick(&mut self) {
-        let instr = self.fetch_instr();
-        println!("0x{:04X} {:?}", self.regs.pc, instr);
-        self.dispatch(instr);
-
-        // Stop execution for the lols
-        if self.regs.pc > 256 {
-            self.running = false;
-            self.dump_state();
-        }
-    }
-
-    // Instruction helpers
-    fn check_condition(&self, cond: Cond) -> bool {
-        match cond {
-            Cond::None => true,
-            Cond::NZ => !self.regs.get_flag(Flag::Z),
-            Cond::Z => self.regs.get_flag(Flag::Z),
-            Cond::NC => !self.regs.get_flag(Flag::C),
-            Cond::C => self.regs.get_flag(Flag::C)
-        }
-    }
-
-    // Memory reading helper functions
-    fn mem_read_u8(&self, addr: u16) -> u8 {
-        self.memory.borrow().read_u8(addr)
-    }
-
-    fn mem_read_u16(&self, addr: u16) -> u16 {
-        let l = self.mem_read_u8(addr);
-        let h = self.mem_read_u8(addr + 1);
-        ((l as u16) << 8) | (h as u16)
-    }
-
-    fn mem_write_u8(&mut self, addr: u16, data: u8) {
-        self.memory.borrow_mut().write_u8(addr, data);
-    }
-
-    fn mem_write_u16(&mut self, addr: u16, data: u16) {
-        self.memory.borrow_mut().write_u16(addr, data);
-    }
-
-    pub fn dump_state(&self) {
-        println!("Registers:");
-        println!("- PC: {:04X} SP: {:04X} ", self.regs.pc, self.regs.sp);
-        println!("- A: {:02X} F: {:02X} B: {:02X} C: {:02X}", self.regs.a, self.regs.f, self.regs.b, self.regs.c);
-        println!("- D: {:02X} E: {:02X} H: {:02X} L: {:02X}", self.regs.d, self.regs.e, self.regs.h, self.regs.l);
-        println!("Flags:");
-        println!("- Zero: {}", self.regs.get_flag(Flag::Z));
-        println!("- Add/Sub: {}", self.regs.get_flag(Flag::N));
-        println!("- Half Carry: {}", self.regs.get_flag(Flag::H));
-        println!("- Carry Flag: {}", self.regs.get_flag(Flag::C));
     }
 }
 
