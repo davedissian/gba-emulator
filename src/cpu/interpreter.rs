@@ -23,9 +23,9 @@ macro_rules! read_reg_pair {
 }
 
 macro_rules! write_reg_pair {
-    ($h:expr, $l:expr, $v:expr) => {{
-        $h = ($v >> 8) as u8;
-        $l = ($v & 0xFF) as u8;
+    ($regs:expr, $h:ident, $l:ident, $v:expr) => {{
+        $regs.$h = ($v >> 8) as u8;
+        $regs.$l = ($v & 0xFF) as u8;
     }};
 }
 
@@ -186,10 +186,10 @@ impl CpuOps for Cpu {
     fn write_arg16(&mut self, arg: Arg16, data: u16) {
         match arg {
             Arg16::Reg(r) => match r {
-                Reg16::AF => write_reg_pair!(self.regs.a, self.regs.f, data),
-                Reg16::BC => write_reg_pair!(self.regs.b, self.regs.c, data),
-                Reg16::DE => write_reg_pair!(self.regs.d, self.regs.e, data),
-                Reg16::HL => write_reg_pair!(self.regs.h, self.regs.l, data),
+                Reg16::AF => write_reg_pair!(self.regs, a, f, data),
+                Reg16::BC => write_reg_pair!(self.regs, b, c, data),
+                Reg16::DE => write_reg_pair!(self.regs, d, h, data),
+                Reg16::HL => write_reg_pair!(self.regs, h, l, data),
                 Reg16::SP => self.regs.sp = data,
                 Reg16::PC => self.regs.pc = data,
             },
@@ -242,7 +242,7 @@ impl CpuOps for Cpu {
         } else {
             self.regs.sp + (offset as u16)
         };
-        write_reg_pair!(self.regs.h, self.regs.l, result);
+        write_reg_pair!(self.regs, h, l, result);
         self.regs.reset_flag(Flag::Z);
         self.regs.reset_flag(Flag::N);
         // TODO(David): Why does this work?
@@ -358,7 +358,7 @@ impl CpuOps for Cpu {
     fn add16(&mut self, i: Arg16) {
         let operand: u16 = self.read_arg16(i);
         let result: u32 = read_reg_pair!(self.regs, h, l) as u32 + operand as u32;
-        write_reg_pair!(self.regs.h, self.regs.l, result as u16);
+        write_reg_pair!(self.regs, h, l, result as u16);
         self.regs.reset_flag(Flag::N);
         unborrow!(self.regs.update_flag(Flag::H, (read_reg_pair!(self.regs, h, l) & 0xFFF +
                                                   operand & 0xFFF) > 0xFFF));
