@@ -1,16 +1,24 @@
+mod rom;
+
 use std::fs::File;
 use std::io::Read;
+use cartridge::rom::ROM;
+
+pub trait MemoryBankController {
+    fn read_u8(&self, addr: u16) -> u8;
+    fn write_u8(&self, addr: u16, data: u8);
+}
 
 pub struct Cartridge {
-    pub rom: Vec<u8>,
     pub title: String,
+    pub mbc: Box<MemoryBankController>
 }
 
 impl Cartridge {
     pub fn new() -> Cartridge {
         Cartridge {
-            rom: vec!(),
             title: String::new(),
+            mbc: Box::new(ROM::new([0; 0x7FFF]))
         }
     }
 
@@ -40,11 +48,27 @@ impl Cartridge {
 
         // Verify cartridge checksum
         // TODO
+        
+        // Set up MBC
+        let cartridge_type = contents[0x0147];
+        println!("status: Cartridge Type: {}", cartridge_type);
+        let mbc: Box<MemoryBankController> = match cartridge_type {
+            0 => Box::new(ROM::new(contents[0..0x7FFF].iter().cloned().collect())),
+            _ => panic!("ERROR: unknown cartridge type")
+        };
 
         // Return a new cartridge object
         Ok(Cartridge {
-            rom: contents,
             title: title,
+            mbc: mbc
         })
+    }
+
+    pub fn read_u8(&self, addr: u16) -> u8 {
+        self.mbc.read_u8(addr)
+    }
+
+    pub fn write_u8(&self, addr: u16, value: u8) {
+        self.mbc.write_u8(addr, value);
     }
 }
