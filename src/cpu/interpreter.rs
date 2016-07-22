@@ -1,6 +1,6 @@
 use std::rc::Rc;
 use std::cell::RefCell;
-use memory::Memory;
+use memory::*;
 use cpu::{Cond, IndirectAddr};
 use cpu::registers::*;
 use cpu::ops::*;
@@ -12,7 +12,8 @@ pub struct Cpu {
     memory: Rc<RefCell<Memory>>,
     pub regs: Registers,
 
-    interrupts_enabled: bool
+    interrupts_enabled: bool,
+    halted: bool
 }
 
 // Registers
@@ -46,14 +47,31 @@ impl Cpu {
             running: true,
             memory: memory,
             regs: Registers::new(),
-            interrupts_enabled: false
+            interrupts_enabled: false,
+            halted: false
         }
     }
 
     pub fn tick(&mut self) {
-        let instr = self.fetch_instr();
-        println!("0x{:04X} {:?}", self.regs.pc, instr);
-        self.dispatch(instr);
+        if !self.halted {
+            let instr = self.fetch_instr();
+            println!("0x{:04X} {:?}", self.regs.pc, instr);
+            self.dispatch(instr);
+        } else {
+            // Wait for interrupt
+            self.check_for_interrupt();
+        }
+    }
+
+    fn check_for_interrupt(&mut self) {
+        let interrupt_register = self.mem_read_u8(INTERRUPTS_ENABLED_REG);
+        if interrupt_register & INTERRUPT_ENABLE_VBLANK != 0 {
+        } else if interrupt_register & INTERRUPT_ENABLE_LCDC != 0 {
+        } else if interrupt_register & INTERRUPT_ENABLE_TIMER != 0 {
+        } else if interrupt_register & INTERRUPT_ENABLE_SERIAL_IO != 0 {
+        } else {
+            println!("Warning: Unhandled register type");
+        }
     }
 
     // Instruction helpers
@@ -426,6 +444,7 @@ impl CpuOps for Cpu {
 
     fn halt(&mut self) {
         println!("HALTED UNTIL NEXT INTERRUPT");
+        self.halted = true;
     }
 
     fn stop(&mut self) {

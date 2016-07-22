@@ -27,15 +27,23 @@ pub struct Memory {
     cgb_hdma_dest_low: u8
 }
 
-const DMG_STATUS_REG: u16               = 0xFF50;
-const CGB_INFRARED_PORT_REG: u16        = 0xFF56;
-const CGB_WRAM_BANK_SELECT: u16         = 0xFF70;
-const CGB_DOUBLE_SPEED_PREP_REG: u16    = 0xFF4D;
-const CGB_HDMA_SOURCE_HIGH_REG: u16     = 0xFF51;
-const CGB_HDMA_SOURCE_LOW_REG: u16      = 0xFF52;
-const CGB_HDMA_DEST_HIGH_REG: u16       = 0xFF53;
-const CGB_HDMA_DEST_LOW_REG: u16        = 0xFF54;
-const CGB_HDMA_REG: u16                 = 0xFF55;
+// Registers
+pub const DMG_STATUS_REG: u16               = 0xFF50;
+pub const CGB_INFRARED_PORT_REG: u16        = 0xFF56;
+pub const CGB_WRAM_BANK_SELECT: u16         = 0xFF70;
+pub const CGB_DOUBLE_SPEED_PREP_REG: u16    = 0xFF4D;
+pub const CGB_HDMA_SOURCE_HIGH_REG: u16     = 0xFF51;
+pub const CGB_HDMA_SOURCE_LOW_REG: u16      = 0xFF52;
+pub const CGB_HDMA_DEST_HIGH_REG: u16       = 0xFF53;
+pub const CGB_HDMA_DEST_LOW_REG: u16        = 0xFF54;
+pub const CGB_HDMA_REG: u16                 = 0xFF55;
+pub const INTERRUPTS_ENABLED_REG: u16       = 0xFFFF;
+
+// Interrupt Enable masks
+pub const INTERRUPT_ENABLE_VBLANK: u8       = 0b00000001;
+pub const INTERRUPT_ENABLE_LCDC: u8         = 0b00000010;
+pub const INTERRUPT_ENABLE_TIMER: u8        = 0b00000100;
+pub const INTERRUPT_ENABLE_SERIAL_IO: u8    = 0b00001000;
 
 impl Memory {
     pub fn new() -> Memory {
