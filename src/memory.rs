@@ -93,7 +93,7 @@ impl Memory {
                     self.bios[addr as usize]
                 } else {
                     if let Some(ref c) = self.cartridge {
-                        c.rom[addr as usize]
+                        c.read_u8(addr)
                     } else {
                         panic!("ERROR: No cartridge is loaded!");
                     }
@@ -118,7 +118,13 @@ impl Memory {
     // Memory Writing
     pub fn write_u8(&mut self, addr: u16, value: u8) {
         match addr {
-            0x0000...0x7FFF => panic!("ERROR: Cannot write to a cartridge!"),
+            0x0000...0x7FFF => {
+                if let Some(ref c) = self.cartridge {
+                    c.write_u8(addr, value);
+                } else {
+                    panic!("ERROR: No cartridge is loaded!");
+                }
+            },
             0x8000...0x9FFF => self.vram[addr as usize - 0x8000] = value,
             0xA000...0xBFFF => self.bank[addr as usize - 0xA000] = value,
             0xC000...0xDFFF => self.internal[addr as usize - 0xC000] = value,
