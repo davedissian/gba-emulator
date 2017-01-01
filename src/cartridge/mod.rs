@@ -18,7 +18,7 @@ impl Cartridge {
     pub fn new() -> Cartridge {
         Cartridge {
             title: String::new(),
-            mbc: Box::new(ROM::new([0; 0x7FFF]))
+            mbc: Box::new(ROM::new([0; 0x8000]))
         }
     }
 
@@ -39,8 +39,7 @@ impl Cartridge {
         // TODO
 
         // Grab the game title from bytes 0134-0143
-        let title_bytes = contents[0x0134..0x0143].iter().cloned().collect();
-        let title = String::from_utf8(title_bytes).unwrap();
+        let title = String::from_utf8(contents[0x0134..0x0143]).unwrap();
 
         // Calculate ROM size by shifting 32k by the value at 0x148
         let rom_size = (32 * 1024) << contents[0x148];
@@ -53,7 +52,7 @@ impl Cartridge {
         let cartridge_type = contents[0x0147];
         println!("status: Cartridge Type: {}", cartridge_type);
         let mbc: Box<MemoryBankController> = match cartridge_type {
-            0 => Box::new(ROM::new(contents[0..0x7FFF].iter().cloned().collect())),
+            0 => Box::new(ROM::new(&contents[0..0x7FFF])),
             _ => panic!("ERROR: unknown cartridge type")
         };
 

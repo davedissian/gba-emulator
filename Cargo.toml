@@ -5,3 +5,4 @@ authors = ["David Avedissian <git@davedissian.com>"]
 
 [dependencies]
 unborrow = "0.2.0"
+glium = "*"
