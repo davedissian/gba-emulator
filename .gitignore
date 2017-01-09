@@ -1,6 +1,9 @@
-*.sublime*
 roms/*
 !roms/README.md
+
+# IntelliJ
+.idea
+*.iml
 
 # Compiled files
 *.o
