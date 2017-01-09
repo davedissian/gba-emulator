@@ -18,7 +18,7 @@ impl Cartridge {
     pub fn new() -> Cartridge {
         Cartridge {
             title: String::new(),
-            mbc: Box::new(ROM::new([0; 0x8000]))
+            mbc: Box::new(ROM::new(&[0; 0x8000]))
         }
     }
 
@@ -39,7 +39,7 @@ impl Cartridge {
         // TODO
 
         // Grab the game title from bytes 0134-0143
-        let title = String::from_utf8(contents[0x0134..0x0143]).unwrap();
+        let title = String::from_utf8(contents[0x0134..0x0143].to_vec()).unwrap();
 
         // Calculate ROM size by shifting 32k by the value at 0x148
         let rom_size = (32 * 1024) << contents[0x148];

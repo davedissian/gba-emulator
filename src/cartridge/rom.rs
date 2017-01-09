@@ -5,7 +5,7 @@ pub struct ROM {
 }
 
 fn copy_rom_bytes(src: &[u8], dest: &mut [u8; 0x8000]) {
-    for i in 0..N-1 {
+    for i in 0..src.len()-1 {
         dest[i] = src[i];
     }
 }
@@ -25,6 +25,7 @@ impl ROM {
         let mut rom = ROM {
             rom: [0; 0x8000]
         };
-        copy_rom_bytes(data, rom.rom);
+        copy_rom_bytes(data, &mut rom.rom);
+        rom
     }
 }

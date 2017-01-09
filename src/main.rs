@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 
 #[macro_use] extern crate unborrow;
-extern crate glium;
 
 mod cpu;
 mod memory;
@@ -9,8 +8,6 @@ mod cartridge;
 
 use std::rc::Rc;
 use std::cell::RefCell;
-use glium::glutin;
-use glium::DisplayBuild;
 
 use cpu::interpreter::Cpu;
 use memory::Memory;
@@ -18,22 +15,22 @@ use cartridge::Cartridge;
 
 pub struct GB {
     cpu: Cpu,
-    memory: Rc<RefCell<Memory>>,
-    display: glutin::Window
+    memory: Rc<RefCell<Memory>>
 }
 
 impl GB {
     pub fn new() -> GB {
         let m = Rc::new(RefCell::new(Memory::new()));
+        /*
         let display = glutin::WindowBuilder::new()
             .with_dimensions(400, 300)
             .with_vsync()
             .build_glium()
             .unwrap();
+        */
         GB {
             cpu: Cpu::new(m.clone()),
             memory: m.clone(),
-            display: display 
         }
     }
 
@@ -62,12 +59,14 @@ impl GB {
                 self.memory.borrow_mut().set_boot_mode(false);
             }
 
+            /*
             for event in self.display.poll_events() {
                 match event {
                     glutin::Event::Closed => return,
                     _ => ()
                 }
             }
+            */
         }
     }
 }

@@ -1,8 +1,9 @@
 [package]
 name = "gbc-emulator"
 version = "0.1.0"
-authors = ["David Avedissian <git@davedissian.com>"]
+authors = ["David Avedissian <git@dga.me.uk>"]
 
 [dependencies]
 unborrow = "0.2.0"
-glium = "*"
+softrender = { git = "https://github.com/davedissian/softrender.git" }
+
