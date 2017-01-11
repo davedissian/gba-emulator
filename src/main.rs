@@ -1,10 +1,13 @@
 #![allow(dead_code)]
 
-#[macro_use] extern crate unborrow;
+#[macro_use]
+
+extern crate unborrow;
 
 mod cpu;
 mod memory;
 mod cartridge;
+mod gpu;
 
 use std::rc::Rc;
 use std::cell::RefCell;
@@ -12,25 +15,21 @@ use std::cell::RefCell;
 use cpu::interpreter::Cpu;
 use memory::Memory;
 use cartridge::Cartridge;
+use gpu::Gpu;
 
 pub struct GB {
     cpu: Cpu,
-    memory: Rc<RefCell<Memory>>
+    memory: Rc<RefCell<Memory>>,
+    gpu: Gpu
 }
 
 impl GB {
     pub fn new() -> GB {
         let m = Rc::new(RefCell::new(Memory::new()));
-        /*
-        let display = glutin::WindowBuilder::new()
-            .with_dimensions(400, 300)
-            .with_vsync()
-            .build_glium()
-            .unwrap();
-        */
         GB {
             cpu: Cpu::new(m.clone()),
             memory: m.clone(),
+            gpu: Gpu::new()
         }
     }
 
@@ -57,16 +56,12 @@ impl GB {
             if self.memory.borrow().boot_mode && self.memory.borrow().read_u8(0xFF50) != 0x00 {
                 self.cpu.regs.pc = 0x100;
                 self.memory.borrow_mut().set_boot_mode(false);
+                println!("status: Finished booting");
             }
 
-            /*
-            for event in self.display.poll_events() {
-                match event {
-                    glutin::Event::Closed => return,
-                    _ => ()
-                }
+            if !self.gpu.tick() {
+                break;
             }
-            */
         }
     }
 }

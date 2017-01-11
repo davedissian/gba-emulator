@@ -440,7 +440,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "softrender"
 version = "0.1.0"
-source = "git+https://github.com/davedissian/softrender.git#ba44d1e5132d40529a22174592b9a6490f55c496"
+source = "git+https://github.com/davedissian/softrender.git#5fd76a245eab9ea1fc957258d620d230e8b16dd3"
 dependencies = [
  "glium 0.16.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
