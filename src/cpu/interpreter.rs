@@ -55,7 +55,7 @@ impl Cpu {
     pub fn tick(&mut self) {
         if !self.halted {
             let instr = self.fetch_instr();
-            println!("0x{:04X} {:?}", self.regs.pc, instr);
+            //println!("0x{:04X} {:?}", self.regs.pc, instr);
             self.dispatch(instr);
         } else {
             // Wait for interrupt

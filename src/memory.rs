@@ -73,6 +73,7 @@ impl Memory {
 
     // Load cartridge
     pub fn load_cartridge(&mut self, cartridge: Cartridge) {
+        self.cgb_enabled = cartridge.is_cgb_enabled();
         self.cartridge = Some(cartridge);
     }
 
@@ -100,14 +101,23 @@ impl Memory {
                 }
             },
             0x8000...0x9FFF => self.vram[addr as usize - 0x8000],
-            0xA000...0xBFFF => self.bank[addr as usize - 0xA000],
+            0xA000...0xBFFF => {
+                if let Some(ref c) = self.cartridge {
+                    c.read_u8(addr)
+                } else {
+                    panic!("ERROR: No cartridge is loaded!");
+                }
+            },
             0xC000...0xDFFF => self.internal[addr as usize - 0xC000],
             0xE000...0xFDFF => self.internal[addr as usize - 0xE000],
             0xFE00...0xFE9F => self.oam[addr as usize - 0xFE00],
+            0xFEA0...0xFEFF => { println!("WARNING: Reading from unused memory area"); 0 },
+            // TODO: 0xFF00..0xFF7F => IO PORTS IN CUSTOM IO MODULE (which should contain registers).
+            0xFF00...0xFF4B => { println!("WARNING: Ignoring IO port read"); 0 }, // TODO: Implement.
             0xFF4C...0xFF7F => self.read_u8_register(addr),
             0xFF80...0xFFFE => self.zero_page_ram[addr as usize - 0xFF80],
             0xFFFF => self.interrupts_enabled,
-            _ => panic!("ERROR: Out of bounds memory read. Addr = {:x}", addr),
+            _ => panic!("ERROR: Out of bounds memory read. Addr = 0x{:X}", addr),
         }
     }
 
@@ -119,21 +129,29 @@ impl Memory {
     pub fn write_u8(&mut self, addr: u16, value: u8) {
         match addr {
             0x0000...0x7FFF => {
-                if let Some(ref c) = self.cartridge {
+                if let Some(ref mut c) = self.cartridge {
                     c.write_u8(addr, value);
                 } else {
                     panic!("ERROR: No cartridge is loaded!");
                 }
             },
             0x8000...0x9FFF => self.vram[addr as usize - 0x8000] = value,
-            0xA000...0xBFFF => self.bank[addr as usize - 0xA000] = value,
+            0xA000...0xBFFF =>  {
+                if let Some(ref mut c) = self.cartridge {
+                    c.write_u8(addr, value);
+                } else {
+                    panic!("ERROR: No cartridge is loaded!");
+                }
+            },
             0xC000...0xDFFF => self.internal[addr as usize - 0xC000] = value,
             0xE000...0xFDFF => self.internal[addr as usize - 0xE000] = value,
             0xFE00...0xFE9F => self.oam[addr as usize - 0xFE00] = value,
+            0xFEA0...0xFEFF => println!("WARNING: Writing to unused memory area"),
+            0xFF00...0xFF4B => println!("WARNING: Ignoring IO port write"), // TODO: Implement.
             0xFF4C...0xFF7F => self.write_u8_register(addr, value),
             0xFF80...0xFFFE => self.zero_page_ram[addr as usize - 0xFF80] = value,
             0xFFFF => self.interrupts_enabled = value,
-            _ => panic!("ERROR: Out of bounds memory write. Addr = {:x}", addr),
+            _ => panic!("ERROR: Out of bounds memory write. Addr = 0x{:X}", addr),
         }
     }
 
@@ -156,7 +174,7 @@ impl Memory {
                 CGB_HDMA_DEST_HIGH_REG      => self.cgb_hdma_dest_high,
                 CGB_HDMA_DEST_LOW_REG       => self.cgb_hdma_dest_low,
                 CGB_HDMA_REG                => { println!("WARNING: HDMA unsupported"); 0 },
-                _                           => panic!("Unknown MMU register: {}", addr)
+                _                           => { println!("WARNING: Reading from unknown MMU register: 0x{:X}", addr); 0 }
             }
         } else {
             println!("WARNING: Cannot read from 0x{:08X} (CGB register) in non-CGB mode!", addr);
@@ -177,10 +195,10 @@ impl Memory {
                 CGB_HDMA_DEST_HIGH_REG      => self.cgb_hdma_dest_high = value,
                 CGB_HDMA_DEST_LOW_REG       => self.cgb_hdma_dest_low = value,
                 CGB_HDMA_REG                => println!("WARNING: HDMA unsupported"),
-                _                           => panic!("Unknown MMU register: {}", addr)
+                _                           => println!("WARNING: Writing to unknown MMU register: 0x{:X}", addr)
             }
         } else {
-            println!("WARNING: Cannot write to 0x{:08X} (CGB register) in non-CGB mode!", addr);
+            println!("WARNING: Cannot write to 0x{:X} (CGB register) in non-CGB mode!", addr);
         }
     }
 }

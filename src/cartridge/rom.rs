@@ -15,7 +15,7 @@ impl MemoryBankController for ROM {
         self.rom[addr as usize]
     }
 
-    fn write_u8(&self, addr: u16, value: u8) {
+    fn write_u8(&mut self, _: u16, _: u8) {
         println!("WARNING: Writing to a read-only memory region");
     }
 }
@@ -25,7 +25,8 @@ impl ROM {
         let mut rom = ROM {
             rom: [0; 0x8000]
         };
-        copy_rom_bytes(data, &mut rom.rom);
+        rom.rom.copy_from_slice(data);
+        //copy_rom_bytes(data, &mut rom.rom);
         rom
     }
 }

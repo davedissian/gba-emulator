@@ -1,7 +1,8 @@
 #![allow(dead_code)]
 
-#[macro_use]
+extern crate time;
 
+#[macro_use]
 extern crate unborrow;
 
 mod cpu;
@@ -16,6 +17,8 @@ use cpu::interpreter::Cpu;
 use memory::Memory;
 use cartridge::Cartridge;
 use gpu::Gpu;
+
+use time::{Duration, PreciseTime};
 
 pub struct GB {
     cpu: Cpu,
@@ -46,6 +49,8 @@ impl GB {
     }
 
     pub fn run(&mut self) {
+        let mut start = PreciseTime::now();
+        let mut cycles = 0;
         loop {
             self.cpu.tick();
             if !self.cpu.running {
@@ -62,13 +67,21 @@ impl GB {
             if !self.gpu.tick() {
                 break;
             }
+
+            cycles += 1;
+            let now = PreciseTime::now();
+            if start.to(now) >= Duration::seconds(1) {
+                println!("status: Cycles per second: {}", cycles);
+                cycles = 0;
+                start = now;
+            }
         }
     }
 }
 
 fn main() {
     let mut device = GB::new();
-    device.load("roms/pokemon-gold.gbc");
+    device.load("roms/tetris-dx.gbc");
     device.boot();
     device.run();
 }

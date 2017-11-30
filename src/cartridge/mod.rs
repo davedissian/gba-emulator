@@ -1,24 +1,29 @@
 mod rom;
+mod mbc1;
 
 use std::fs::File;
 use std::io::Read;
+
 use cartridge::rom::ROM;
+use cartridge::mbc1::MBC1;
 
 pub trait MemoryBankController {
     fn read_u8(&self, addr: u16) -> u8;
-    fn write_u8(&self, addr: u16, data: u8);
+    fn write_u8(&mut self, addr: u16, data: u8);
 }
 
 pub struct Cartridge {
     pub title: String,
-    pub mbc: Box<MemoryBankController>
+    pub mbc: Box<MemoryBankController>,
+    cgb_enabled: bool
 }
 
 impl Cartridge {
     pub fn new() -> Cartridge {
         Cartridge {
             title: String::new(),
-            mbc: Box::new(ROM::new(&[0; 0x8000]))
+            mbc: Box::new(ROM::new(&[0; 0x8000])),
+            cgb_enabled: false
         }
     }
 
@@ -44,22 +49,29 @@ impl Cartridge {
         // Calculate ROM size by shifting 32k by the value at 0x148
         let rom_size = (32 * 1024) << contents[0x148];
         println!("status: ROM size is {} KB", rom_size / 1024);
+        println!("status: Actual ROM size is {} KB", contents.len() / 1024);
 
         // Verify cartridge checksum
         // TODO
+
+        // Enable CGB mode.
+        let cgb_enabled = contents[0x0143] & 0b1000_0000 != 0;
+        println!("status: CGB enabled: {}", cgb_enabled);
         
-        // Set up MBC
+        // Parse cartridge type.
         let cartridge_type = contents[0x0147];
-        println!("status: Cartridge Type: {}", cartridge_type);
+        println!("status: Cartridge Type: {:x}", cartridge_type);
         let mbc: Box<MemoryBankController> = match cartridge_type {
-            0 => Box::new(ROM::new(&contents[0..0x7FFF])),
+            0x0 | 0x8 | 0x9  => Box::new(ROM::new(&contents[0..0x7FFF])),
+            0x1 | 0x2 | 0x3 => Box::new(MBC1::new(contents.as_slice())),
             _ => panic!("ERROR: unknown cartridge type")
         };
 
         // Return a new cartridge object
         Ok(Cartridge {
             title: title,
-            mbc: mbc
+            mbc: mbc,
+            cgb_enabled: cgb_enabled
         })
     }
 
@@ -67,7 +79,11 @@ impl Cartridge {
         self.mbc.read_u8(addr)
     }
 
-    pub fn write_u8(&self, addr: u16, value: u8) {
+    pub fn write_u8(&mut self, addr: u16, value: u8) {
         self.mbc.write_u8(addr, value);
+    }
+
+    pub fn is_cgb_enabled(&self) -> bool {
+        self.cgb_enabled
     }
 }
