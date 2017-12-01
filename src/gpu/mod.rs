@@ -32,7 +32,7 @@ impl Display {
     }
 
     fn update(&mut self) -> bool {
-        self.window.update()
+        self.window.update(false)
     }
 }
 

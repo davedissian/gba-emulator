@@ -54,8 +54,9 @@ impl Cpu {
 
     pub fn tick(&mut self) {
         if !self.halted {
+            let pc = self.regs.pc;
             let instr = self.fetch_instr();
-            //println!("0x{:04X} {:?}", self.regs.pc, instr);
+            println!("0x{:04X} {:?}", pc, instr);
             self.dispatch(instr);
         } else {
             // Wait for interrupt
@@ -412,6 +413,7 @@ impl CpuOps for Cpu {
     fn nop(&mut self) {}
 
     fn daa(&mut self) {
+        panic!("Unsupported instruction DAA");
         // TODO(David): Ambiguous spec, test this
         // A stores a number up to 255. In BCD form each nibble would store a single digit,
         // therefore the maximum number that can be stored is 99.

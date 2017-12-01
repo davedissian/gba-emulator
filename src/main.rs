@@ -52,26 +52,34 @@ impl GB {
         let mut start = PreciseTime::now();
         let mut cycles = 0;
         loop {
-            self.cpu.tick();
-            if !self.cpu.running {
-                break;
-            }
+            let cpu_start = PreciseTime::now();
+            for i in 0..70224 {
+                self.cpu.tick();
+                if !self.cpu.running {
+                    break;
+                }
 
-            // value in FF50 means gameboy has finished booting
-            if self.memory.borrow().boot_mode && self.memory.borrow().read_u8(0xFF50) != 0x00 {
-                self.cpu.regs.pc = 0x100;
-                self.memory.borrow_mut().set_boot_mode(false);
-                println!("status: Finished booting");
+                // value in FF50 means gameboy has finished booting
+                if self.memory.borrow().boot_mode && self.memory.borrow().read_u8(0xFF50) != 0x00 {
+                    self.cpu.regs.pc = 0x100;
+                    self.memory.borrow_mut().set_boot_mode(false);
+                    println!("status: Finished booting");
+                }
             }
+            let cpu_time = cpu_start.to(PreciseTime::now());
 
+            let gpu_start = PreciseTime::now();
             if !self.gpu.tick() {
                 break;
             }
+            let gpu_time = gpu_start.to(PreciseTime::now());
 
             cycles += 1;
             let now = PreciseTime::now();
             if start.to(now) >= Duration::seconds(1) {
-                println!("status: Cycles per second: {}", cycles);
+                println!("status: Cycles per second: {} - CPU time: {}ms - GPU time: {}ms", cycles,
+                    cpu_time.num_microseconds().unwrap() as f32 / 1000.0,
+                    gpu_time.num_microseconds().unwrap() as f32 / 1000.0);
                 cycles = 0;
                 start = now;
             }

@@ -11,7 +11,7 @@ pub struct Memory {
     bank: [u8; 8192],
     internal: [u8; 8192],
     oam: [u8; 160],
-    zero_page_ram: [u8; 126],
+    zero_page_ram: [u8; 127],
 
     // Registers
     dmg_status: u8,
@@ -56,7 +56,7 @@ impl Memory {
             bank: [0u8; 8192],
             internal: [0u8; 8192],
             oam: [0u8; 160],
-            zero_page_ram: [0u8; 126],
+            zero_page_ram: [0u8; 127],
 
             dmg_status: 0,
             interrupts_enabled: 0,

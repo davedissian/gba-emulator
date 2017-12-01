@@ -29,7 +29,7 @@ impl MemoryBankController for MBC1 {
             // ROM bank.
             0x2000...0x3FFF => {
                 // Sets lower 5 bits of ROM bank.
-                self.rom_bank = self.rom_bank & 0b1110_0000 + value & 0b0001_1111;
+                self.rom_bank = (self.rom_bank & 0b1110_0000) | (value & 0b0001_1111);
                 self.rom_bank = match self.rom_bank {
                     0x0 => 0x1,
                     0x20 => 0x21,
@@ -46,7 +46,7 @@ impl MemoryBankController for MBC1 {
                     self.ram_bank = masked_value;
                     println!("MBC1: Set RAM bank to 0x{:X}", self.ram_bank);
                 } else {
-                    self.rom_bank = self.rom_bank & 0b0001_1111 + (masked_value << 5);
+                    self.rom_bank = (self.rom_bank & 0b0001_1111) | (masked_value << 5);
                     self.rom_bank = match self.rom_bank {
                         0x20 => 0x21,
                         0x40 => 0x41,
@@ -82,13 +82,15 @@ impl MBC1 {
         }
     }
 
+    #[inline]
     fn rom_bank_addr(&self, rel_addr: u16, bank: u8) -> usize {
         // bank * 0x4000 (rom bank size).
-        (bank << 14 + rel_addr) as usize
+        (bank as usize) * 0x2000 + (rel_addr as usize)
     }
 
+    #[inline]
     fn ram_bank_addr(&self, rel_addr: u16, bank: u8) -> usize {
         // bank * 0x2000 (ram bank size).
-        (bank << 13 + rel_addr) as usize
+        (bank as usize) * 0x2000 + (rel_addr as usize)
     }
 }
