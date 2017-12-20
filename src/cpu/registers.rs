@@ -37,6 +37,19 @@ pub enum Flag {
     Z, N, H, C
 }
 
+macro_rules! read_reg_pair {
+    ($regs:expr, $h:ident, $l:ident) => {
+        (($regs.$h as u16) << 8) | $regs.$l as u16
+    };
+}
+
+macro_rules! write_reg_pair {
+    ($regs:expr, $h:ident, $l:ident, $v:expr) => {{
+        $regs.$h = ($v >> 8) as u8;
+        $regs.$l = ($v & 0xFF) as u8;
+    }};
+}
+
 impl Registers {
     pub fn new() -> Registers {
         Registers {
@@ -53,6 +66,38 @@ impl Registers {
         }
     }
 
+    pub fn af(&self) -> u16 {
+        read_reg_pair!(self, a, f)
+    }
+
+    pub fn bc(&self) -> u16 {
+        read_reg_pair!(self, b, c)
+    }
+
+    pub fn de(&self) -> u16 {
+        read_reg_pair!(self, d, e)
+    }
+
+    pub fn hl(&self) -> u16 {
+        read_reg_pair!(self, h, l)
+    }
+
+    pub fn set_af(&mut self, value: u16) {
+        write_reg_pair!(self, a, f, value);
+    }
+
+    pub fn set_bc(&mut self, value: u16) {
+        write_reg_pair!(self, b, c, value);
+    }
+
+    pub fn set_de(&mut self, value: u16) {
+        write_reg_pair!(self, d, e, value);
+    }
+
+    pub fn set_hl(&mut self, value: u16) {
+        write_reg_pair!(self, h, l, value);
+    }
+
     fn select_flag(f: Flag) -> u8 {
         match f {
             Flag::Z => 7,
@@ -66,20 +111,12 @@ impl Registers {
         ((self.f >> Registers::select_flag(f)) & 1) == 1
     }
 
-    pub fn update_flag(&mut self, f: Flag, v: bool) {
+    pub fn flag(&mut self, f: Flag, v: bool) {
         if v {
-            self.set_flag(f);
+            self.f |= 1 << Registers::select_flag(f);
         } else {
-            self.reset_flag(f);
+            self.f &= !(1 << Registers::select_flag(f));
         }
-    }
-
-    pub fn set_flag(&mut self, f: Flag) {
-        self.f |= 1 << Registers::select_flag(f);
-    }
-
-    pub fn reset_flag(&mut self, f: Flag) {
-        self.f &= !(1 << Registers::select_flag(f));
     }
 }
 
@@ -90,28 +127,28 @@ mod test {
     #[test]
     fn set_z_flag() {
         let mut r = Registers::new();
-        r.set_flag(Flag::Z);
+        r.flag(Flag::Z, true);
         assert_eq!(r.f, 0b10000000)
     }
 
     #[test]
     fn set_n_flag() {
         let mut r = Registers::new();
-        r.set_flag(Flag::N);
+        r.flag(Flag::N, true);
         assert_eq!(r.f, 0b01000000)
     }
 
     #[test]
     fn set_h_flag() {
         let mut r = Registers::new();
-        r.set_flag(Flag::H);
+        r.flag(Flag::H, true);
         assert_eq!(r.f, 0b00100000)
     }
 
     #[test]
     fn set_c_flag() {
         let mut r = Registers::new();
-        r.set_flag(Flag::C);
+        r.flag(Flag::C, true);
         assert_eq!(r.f, 0b00010000)
     }
 
@@ -119,7 +156,7 @@ mod test {
     fn reset_c_flag_only() {
         let mut r = Registers::new();
         r.f = 0b00010000;
-        r.reset_flag(Flag::C);
+        r.flag(Flag::C, false);
         assert_eq!(r.f, 0b00000000)
     }
 
@@ -127,8 +164,8 @@ mod test {
     fn reset_z_and_c_flag_with_all_set() {
         let mut r = Registers::new();
         r.f = 0b11010000;
-        r.reset_flag(Flag::Z);
-        r.reset_flag(Flag::C);
+        r.flag(Flag::Z, false);
+        r.flag(Flag::C, false);
         assert_eq!(r.f, 0b01000000)
     }
 }

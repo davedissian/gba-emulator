@@ -20,16 +20,16 @@ use gpu::Gpu;
 
 use time::{Duration, PreciseTime};
 
-pub struct GB {
+pub struct Emulator {
     cpu: Cpu,
     memory: Rc<RefCell<Memory>>,
     gpu: Gpu
 }
 
-impl GB {
-    pub fn new() -> GB {
+impl Emulator {
+    pub fn new() -> Emulator {
         let m = Rc::new(RefCell::new(Memory::new()));
-        GB {
+        Emulator {
             cpu: Cpu::new(m.clone()),
             memory: m.clone(),
             gpu: Gpu::new()
@@ -53,33 +53,29 @@ impl GB {
         let mut cycles = 0;
         loop {
             let cpu_start = PreciseTime::now();
-            for i in 0..70224 {
-                self.cpu.tick();
-                if !self.cpu.running {
-                    break;
-                }
 
-                // value in FF50 means gameboy has finished booting
-                if self.memory.borrow().boot_mode && self.memory.borrow().read_u8(0xFF50) != 0x00 {
-                    self.cpu.regs.pc = 0x100;
-                    self.memory.borrow_mut().set_boot_mode(false);
-                    println!("status: Finished booting");
-                }
+            // CPU.
+            self.cpu.tick();
+            if !self.cpu.running {
+                panic!("CPU has stopped running");
+                //break;
             }
+
             let cpu_time = cpu_start.to(PreciseTime::now());
 
+            /*
             let gpu_start = PreciseTime::now();
             if !self.gpu.tick() {
                 break;
             }
             let gpu_time = gpu_start.to(PreciseTime::now());
+            */
 
             cycles += 1;
             let now = PreciseTime::now();
             if start.to(now) >= Duration::seconds(1) {
-                println!("status: Cycles per second: {} - CPU time: {}ms - GPU time: {}ms", cycles,
-                    cpu_time.num_microseconds().unwrap() as f32 / 1000.0,
-                    gpu_time.num_microseconds().unwrap() as f32 / 1000.0);
+                println!("status: Cycles per second: {} - CPU time: {}ms", cycles,
+                    cpu_time.num_microseconds().unwrap() as f32 / 1000.0);
                 cycles = 0;
                 start = now;
             }
@@ -88,8 +84,8 @@ impl GB {
 }
 
 fn main() {
-    let mut device = GB::new();
-    device.load("roms/tetris-dx.gbc");
+    let mut device = Emulator::new();
+    device.load("roms/loopz-rom.gb");
     device.boot();
     device.run();
 }
@@ -110,4 +106,4 @@ static BOOTROM: [u8; 256] = [
     0xDC, 0xCC, 0x6E, 0xE6, 0xDD, 0xDD, 0xD9, 0x99, 0xBB, 0xBB, 0x67, 0x63, 0x6E, 0x0E, 0xEC, 0xCC,
     0xDD, 0xDC, 0x99, 0x9F, 0xBB, 0xB9, 0x33, 0x3E, 0x3c, 0x42, 0xB9, 0xA5, 0xB9, 0xA5, 0x42, 0x4C,
     0x21, 0x04, 0x01, 0x11, 0xA8, 0x00, 0x1A, 0x13, 0xBE, 0x20, 0xFE, 0x23, 0x7D, 0xFE, 0x34, 0x20,
-    0xF5, 0x06, 0x19, 0x78, 0x86, 0x23, 0x05, 0x20, 0xFB, 0x86, 0x20, 0xFE, 0x3E, 0x11, 0xE0, 0x50];
+    0xF5, 0x06, 0x19, 0x78, 0x86, 0x23, 0x05, 0x20, 0xFB, 0x86, 0x20, 0xFE, 0x3E, 0x01, 0xE0, 0x50];

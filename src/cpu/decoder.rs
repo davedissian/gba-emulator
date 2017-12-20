@@ -186,10 +186,10 @@ pub fn decode_cb(code: u8) -> Instruction {
         // | opcode(5) | op(3)
         ([0b00000, 5] [#op, 3]) => [RLC  reg8(op)],
         ([0b00001, 5] [#op, 3]) => [RRC  reg8(op)],
-        ([0b00010, 5] [#op, 3]) => [RR   reg8(op)],
-        ([0b00011, 5] [#op, 3]) => [RL   reg8(op)],
-        ([0b00100, 5] [#op, 3]) => [SRA  reg8(op)],
-        ([0b00101, 5] [#op, 3]) => [SLA  reg8(op)],
+        ([0b00010, 5] [#op, 3]) => [RL   reg8(op)],
+        ([0b00011, 5] [#op, 3]) => [RR   reg8(op)],
+        ([0b00100, 5] [#op, 3]) => [SLA  reg8(op)],
+        ([0b00101, 5] [#op, 3]) => [SRA  reg8(op)],
         ([0b00110, 5] [#op, 3]) => [SWAP reg8(op)],
         ([0b00111, 5] [#op, 3]) => [SRL  reg8(op)],
         // | opcode(2) | imm_op(3) | op(3)

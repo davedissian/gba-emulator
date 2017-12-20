@@ -111,9 +111,9 @@ impl Memory {
             0xC000...0xDFFF => self.internal[addr as usize - 0xC000],
             0xE000...0xFDFF => self.internal[addr as usize - 0xE000],
             0xFE00...0xFE9F => self.oam[addr as usize - 0xFE00],
-            0xFEA0...0xFEFF => { println!("WARNING: Reading from unused memory area"); 0 },
+            0xFEA0...0xFEFF => { println!("WARNING: Reading from unused memory area. Addr = 0x{:X}", addr); 0 },
             // TODO: 0xFF00..0xFF7F => IO PORTS IN CUSTOM IO MODULE (which should contain registers).
-            0xFF00...0xFF4B => { println!("WARNING: Ignoring IO port read"); 0 }, // TODO: Implement.
+            0xFF00...0xFF4B => { println!("WARNING: Ignoring IO port read. Addr = 0x{:X}", addr); 0 }, // TODO: Implement.
             0xFF4C...0xFF7F => self.read_u8_register(addr),
             0xFF80...0xFFFE => self.zero_page_ram[addr as usize - 0xFF80],
             0xFFFF => self.interrupts_enabled,
@@ -146,8 +146,8 @@ impl Memory {
             0xC000...0xDFFF => self.internal[addr as usize - 0xC000] = value,
             0xE000...0xFDFF => self.internal[addr as usize - 0xE000] = value,
             0xFE00...0xFE9F => self.oam[addr as usize - 0xFE00] = value,
-            0xFEA0...0xFEFF => println!("WARNING: Writing to unused memory area"),
-            0xFF00...0xFF4B => println!("WARNING: Ignoring IO port write"), // TODO: Implement.
+            0xFEA0...0xFEFF => println!("WARNING: Writing to unused memory area. Addr = 0x{:X}", addr),
+            0xFF00...0xFF4B => println!("WARNING: Ignoring IO port write. Addr = 0x{:X}", addr), // TODO: Implement.
             0xFF4C...0xFF7F => self.write_u8_register(addr, value),
             0xFF80...0xFFFE => self.zero_page_ram[addr as usize - 0xFF80] = value,
             0xFFFF => self.interrupts_enabled = value,

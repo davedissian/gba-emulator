@@ -1,9 +1,9 @@
 [package]
-name = "gbc-emulator"
+name = "gbc-rs"
 version = "0.1.0"
 authors = ["David Avedissian <git@dga.me.uk>"]
 
 [dependencies]
 time = "0.1.38"
 unborrow = "0.3.1"
-softrender = { git = "https://github.com/davedissian/softrender.git" }
+softrender = { git = "https://github.com/davedissian/rasteriser.git" }

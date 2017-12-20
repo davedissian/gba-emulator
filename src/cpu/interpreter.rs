@@ -16,25 +16,11 @@ pub struct Cpu {
     halted: bool
 }
 
-// Registers
-macro_rules! read_reg_pair {
-    ($regs:expr, $h:ident, $l:ident) => {
-        (($regs.$h as u16) << 8) | $regs.$l as u16
-    };
-}
-
-macro_rules! write_reg_pair {
-    ($regs:expr, $h:ident, $l:ident, $v:expr) => {{
-        $regs.$h = ($v >> 8) as u8;
-        $regs.$l = ($v & 0xFF) as u8;
-    }};
-}
-
 fn get_address(cpu: &Cpu, a: &IndirectAddr) -> u16 {
     match *a {
-        IndirectAddr::BC => read_reg_pair!(cpu.regs, b, c),
-        IndirectAddr::DE => read_reg_pair!(cpu.regs, d, e),
-        IndirectAddr::HL => read_reg_pair!(cpu.regs, h, l),
+        IndirectAddr::BC => cpu.regs.bc(),
+        IndirectAddr::DE => cpu.regs.de(),
+        IndirectAddr::HL => cpu.regs.hl(),
         IndirectAddr::C => cpu.regs.c as u16 + 0xFF00,
         IndirectAddr::Imm8(n) => n as u16 + 0xFF00,
         IndirectAddr::Imm16(n) => n
@@ -53,25 +39,36 @@ impl Cpu {
     }
 
     pub fn tick(&mut self) {
-        if !self.halted {
+        self.check_for_interrupt();
+
+        if self.halted {
+            // Increase cycle count.
+        } else {
             let pc = self.regs.pc;
             let instr = self.fetch_instr();
-            println!("0x{:04X} {:?}", pc, instr);
+            let state = self.dump_state_small();
+            println!("0x{:04x}\t{}\t{:?}", pc, state, instr);
             self.dispatch(instr);
-        } else {
-            // Wait for interrupt
-            self.check_for_interrupt();
+
+            if self.regs.pc == 0x100 {
+                self.memory.borrow_mut().set_boot_mode(false);
+                println!("status: Finished booting");
+            }
         }
     }
 
     fn check_for_interrupt(&mut self) {
         let interrupt_register = self.mem_read_u8(INTERRUPTS_ENABLED_REG);
         if interrupt_register & INTERRUPT_ENABLE_VBLANK != 0 {
+            println!("INTERRUPT_ENABLE_VBLANK")
         } else if interrupt_register & INTERRUPT_ENABLE_LCDC != 0 {
+            println!("INTERRUPT_ENABLE_LCDC")
         } else if interrupt_register & INTERRUPT_ENABLE_TIMER != 0 {
+            println!("INTERRUPT_ENABLE_TIMER")
         } else if interrupt_register & INTERRUPT_ENABLE_SERIAL_IO != 0 {
+            println!("INTERRUPT_ENABLE_SERIAL_IO")
         } else {
-            println!("Warning: Unhandled register type");
+            //println!("Warning: Unhandled register type");
         }
     }
 
@@ -87,13 +84,14 @@ impl Cpu {
     }
 
     fn push_u16(&mut self, value: u16) {
-        unborrow!(self.mem_write_u16(self.regs.sp, value));
         self.regs.sp -= 2;
+        unborrow!(self.mem_write_u16(self.regs.sp, value));
     }
 
     fn pop_u16(&mut self) -> u16 {
+        let result = self.mem_read_u16(self.regs.sp);
         self.regs.sp += 2;
-        self.mem_read_u16(self.regs.sp)
+        result
     }
 
     // Memory reading helper functions
@@ -102,9 +100,7 @@ impl Cpu {
     }
 
     fn mem_read_u16(&self, addr: u16) -> u16 {
-        let l = self.mem_read_u8(addr);
-        let h = self.mem_read_u8(addr + 1);
-        ((l as u16) << 8) | (h as u16)
+        self.memory.borrow().read_u16(addr)
     }
 
     fn mem_write_u8(&mut self, addr: u16, data: u8) {
@@ -126,13 +122,33 @@ impl Cpu {
         println!("- Half Carry: {}", self.regs.get_flag(Flag::H));
         println!("- Carry Flag: {}", self.regs.get_flag(Flag::C));
     }
+
+    pub fn dump_state_small(&self) -> String {
+        format!("sp:{:04x} a:{:02x} f:{:02x} b:{:02x} c:{:02x} d:{:02x} e:{:02x} h:{:02x} l:{:02x} znhc:{:04b}",
+            self.regs.sp,
+            self.regs.a,
+            self.regs.f,
+            self.regs.b,
+            self.regs.c,
+            self.regs.d,
+            self.regs.e,
+            self.regs.h,
+            self.regs.l,
+            self.regs.f >> 4)
+    }
 }
 
 impl Fetcher for Cpu {
-    fn fetch_word(&mut self) -> u8 {
+    fn fetch_u8(&mut self) -> u8 {
         let byte = self.mem_read_u8(self.regs.pc);
         self.regs.pc += 1;
         byte
+    }
+
+    fn fetch_u16(&mut self) -> u16 {
+        let word = self.mem_read_u16(self.regs.pc);
+        self.regs.pc += 2;
+        word
     }
 }
     
@@ -185,10 +201,10 @@ impl CpuOps for Cpu {
     fn read_arg16(&self, arg: Arg16) -> u16 {
         match arg {
             Arg16::Reg(r) => match r {
-                Reg16::AF => read_reg_pair!(self.regs, a, f),
-                Reg16::BC => read_reg_pair!(self.regs, b, c),
-                Reg16::DE => read_reg_pair!(self.regs, d, e),
-                Reg16::HL => read_reg_pair!(self.regs, h, l),
+                Reg16::AF => self.regs.af(),
+                Reg16::BC => self.regs.bc(),
+                Reg16::DE => self.regs.de(),
+                Reg16::HL => self.regs.hl(),
                 Reg16::SP => self.regs.sp,
                 Reg16::PC => self.regs.pc,
             },
@@ -205,10 +221,10 @@ impl CpuOps for Cpu {
     fn write_arg16(&mut self, arg: Arg16, data: u16) {
         match arg {
             Arg16::Reg(r) => match r {
-                Reg16::AF => write_reg_pair!(self.regs, a, f, data),
-                Reg16::BC => write_reg_pair!(self.regs, b, c, data),
-                Reg16::DE => write_reg_pair!(self.regs, d, h, data),
-                Reg16::HL => write_reg_pair!(self.regs, h, l, data),
+                Reg16::AF => self.regs.set_af(data),
+                Reg16::BC => self.regs.set_bc(data),
+                Reg16::DE => self.regs.set_de(data),
+                Reg16::HL => self.regs.set_hl(data),
                 Reg16::SP => self.regs.sp = data,
                 Reg16::PC => self.regs.pc = data,
             },
@@ -240,11 +256,11 @@ impl CpuOps for Cpu {
     fn ldh(&mut self, o: Arg8, i: Arg8){
         // Add 0xFF00 to any immediate input/output addresses
         let o = match o {
-            Arg8::Ind(IndirectAddr::Imm8(v)) => Arg8::Ind(IndirectAddr::Imm16(v as u16 + 0xFF00)),
+            Arg8::Ind(IndirectAddr::Imm8(v)) => Arg8::Ind(IndirectAddr::Imm16(v as u16 | 0xFF00)),
             _ => o
         };
         let i = match i {
-            Arg8::Ind(IndirectAddr::Imm8(v)) => Arg8::Ind(IndirectAddr::Imm16(v as u16 + 0xFF00)),
+            Arg8::Ind(IndirectAddr::Imm8(v)) => Arg8::Ind(IndirectAddr::Imm16(v as u16 | 0xFF00)),
             _ => i
         };
         self.ld(o, i);
@@ -256,18 +272,13 @@ impl CpuOps for Cpu {
     }
 
     fn ldhl16(&mut self, offset: i8) {
-        let result: u16 = if offset < 0 {
-            self.regs.sp - (-offset as u16)
-        } else {
-            self.regs.sp + (offset as u16)
-        };
-        write_reg_pair!(self.regs, h, l, result);
-        self.regs.reset_flag(Flag::Z);
-        self.regs.reset_flag(Flag::N);
-        // TODO(David): Why does this work?
-        let temp: u16 = read_reg_pair!(self.regs, h, l) ^ self.regs.sp ^ result;
-        self.regs.update_flag(Flag::H, temp & 0x10 == 0x10);
-        self.regs.update_flag(Flag::C, temp & 0x100 == 0x100);
+        // Sign extend operand then convert to unsigned (preserving sign bits).
+        let operand = offset as i16 as u16;
+        self.regs.flag(Flag::Z, false);
+        self.regs.flag(Flag::N, false);
+        unborrow!(self.regs.flag(Flag::H, (self.regs.sp & 0x000F) + (operand & 0x000F) > 0x000F));
+        unborrow!(self.regs.flag(Flag::C, (self.regs.sp & 0x00FF) + (operand & 0x00FF) > 0x00FF));
+        unborrow!(self.regs.set_hl(self.regs.sp.wrapping_add(operand)));
     }
 
     fn push(&mut self, i: Arg16) {
@@ -281,74 +292,76 @@ impl CpuOps for Cpu {
     }
 
     fn add(&mut self, i: Arg8) {
-        let operand: u8 = self.read_arg8(i);
-        let result: u16 = self.regs.a as u16 + operand as u16;
-        self.regs.a = result as u8;
-        self.regs.update_flag(Flag::Z, result == 0);
-        self.regs.reset_flag(Flag::N);
-        unborrow!(self.regs.update_flag(Flag::H, (self.regs.a & 0xF + operand & 0xF) > 0xF));
-        self.regs.update_flag(Flag::C, result > 0xFF);
+        let a = self.regs.a;
+        let operand = self.read_arg8(i);
+        let result = a.wrapping_add(operand);
+        self.regs.flag(Flag::Z, result == 0);
+        self.regs.flag(Flag::N, false);
+        self.regs.flag(Flag::H, (a & 0xF + operand & 0xF) > 0xF);
+        self.regs.flag(Flag::C, ((a as u16) + (operand as u16)) > 0xFF);
+        self.regs.a = result;
     }
 
     fn adc(&mut self, i: Arg8) {
-        let operand: u8 = self.read_arg8(i);
+        let a = self.regs.a;
+        let operand = self.read_arg8(i);
         let carry: u8 = if self.regs.get_flag(Flag::C) { 1 } else { 0 };
-        let result: u16 = self.regs.a as u16 + operand as u16 + carry as u16;
-        self.regs.a = result as u8;
-        self.regs.update_flag(Flag::Z, result == 0);
-        self.regs.reset_flag(Flag::N);
-        unborrow!(self.regs.update_flag(Flag::H, (self.regs.a & 0xF + operand & 0xF) > 0xF));
-        self.regs.update_flag(Flag::C, result > 0xFF);
+        let result = a.wrapping_add(operand).wrapping_add(carry);
+        self.regs.flag(Flag::Z, result == 0);
+        self.regs.flag(Flag::N, false);
+        self.regs.flag(Flag::H, (a & 0xF + operand & 0xF + carry) > 0xF);
+        self.regs.flag(Flag::C, ((a as u16) + (operand as u16) + (carry as u16)) > 0xFF);
+        self.regs.a = result;
     }
 
     fn sub(&mut self, i: Arg8) {
-        let operand: u8 = self.read_arg8(i);
-        let result: u8 = self.regs.a - operand;
+        let a = self.regs.a;
+        let operand = self.read_arg8(i);
+        let result = a.wrapping_sub(operand);
+        self.regs.flag(Flag::Z, result == 0);
+        self.regs.flag(Flag::N, true);
+        self.regs.flag(Flag::H, (a & 0xF) < (operand & 0xF));
+        self.regs.flag(Flag::C, (a as u16) < (operand as u16));
         self.regs.a = result;
-        self.regs.update_flag(Flag::Z, result == 0);
-        self.regs.set_flag(Flag::N);
-        unborrow!(self.regs.update_flag(Flag::H, (self.regs.a & 0xF) < (operand & 0xF)));
-        unborrow!(self.regs.update_flag(Flag::C, self.regs.a < operand));
     }
 
     fn sbc(&mut self, i: Arg8) {
-        let operand: u8 = self.read_arg8(i);
+        let a = self.regs.a;
+        let operand = self.read_arg8(i);
         let carry: u8 = if self.regs.get_flag(Flag::C) { 1 } else { 0 };
-        let result: u8 = self.regs.a - operand - carry;
+        let result = a.wrapping_sub(operand).wrapping_sub(carry);
+        self.regs.flag(Flag::Z, result == 0);
+        self.regs.flag(Flag::N, true);
+        self.regs.flag(Flag::H, (a & 0xF) < (operand & 0xF + carry));
+        self.regs.flag(Flag::C, (a as u16) < ((operand as u16) + (carry as u16)));
         self.regs.a = result;
-        self.regs.update_flag(Flag::Z, result == 0);
-        self.regs.set_flag(Flag::N);
-        unborrow!(self.regs.update_flag(Flag::H, (self.regs.a & 0xF) < (operand & 0xF + carry)));
-        // We need to be careful in case operand is 11111111 and carry is 1, therefore casting to
-        // u16 is required to prevent u8 overflow!
-        unborrow!(self.regs.update_flag(Flag::C, (self.regs.a as u16) < (operand as u16 + carry as u16)));
     }
 
     fn and(&mut self, i: Arg8) {
         self.regs.a &= self.read_arg8(i);
         let result = self.regs.a;
-        self.regs.update_flag(Flag::Z, result == 0);
-        self.regs.reset_flag(Flag::N);
-        self.regs.set_flag(Flag::H);
-        self.regs.reset_flag(Flag::C);
+        self.regs.flag(Flag::Z, result == 0);
+        self.regs.flag(Flag::N, false);
+        self.regs.flag(Flag::H, true);
+        self.regs.flag(Flag::C, false);
     }
 
     fn or(&mut self, i: Arg8) {
         self.regs.a |= self.read_arg8(i);
         let result = self.regs.a;
-        self.regs.update_flag(Flag::Z, result == 0);
-        self.regs.reset_flag(Flag::N);
-        self.regs.reset_flag(Flag::H);
-        self.regs.reset_flag(Flag::C);
+        self.regs.flag(Flag::Z, result == 0);
+        self.regs.flag(Flag::N, false);
+        self.regs.flag(Flag::H, false);
+        self.regs.flag(Flag::C, false);
     }
 
     fn xor(&mut self, i: Arg8) {
         self.regs.a ^= self.read_arg8(i);
         let result = self.regs.a;
-        self.regs.update_flag(Flag::Z, result == 0);
-        self.regs.reset_flag(Flag::N);
-        self.regs.reset_flag(Flag::H);
-        self.regs.reset_flag(Flag::C);
+        self.regs.flag(Flag::Z, result == 0);
+        self.regs.flag(Flag::N, false);
+        self.regs.flag(Flag::H, false);
+        self.regs.flag(Flag::C, false);
     }
 
     fn cp(&mut self, i: Arg8) {
@@ -359,53 +372,47 @@ impl CpuOps for Cpu {
     }
 
     fn inc(&mut self, io: Arg8) {
-        let result = self.read_arg8(io) + 1;
+        let result = self.read_arg8(io).wrapping_add(1);
         self.write_arg8(io, result);
-        self.regs.update_flag(Flag::Z, result == 0);
-        self.regs.reset_flag(Flag::N);
-        self.regs.update_flag(Flag::H, (result & 0xF + 1) > 0xF);
+        self.regs.flag(Flag::Z, result == 0);
+        self.regs.flag(Flag::N, false);
+        self.regs.flag(Flag::H, (result & 0xF) + 1 > 0xF);
     }
 
     fn dec(&mut self, io: Arg8) {
-        let result = self.read_arg8(io) - 1;
+        let result = self.read_arg8(io).wrapping_sub(1);
         self.write_arg8(io, result);
-        self.regs.update_flag(Flag::Z, result == 0);
-        self.regs.set_flag(Flag::N);
-        self.regs.update_flag(Flag::H, ((result - 1) & 0xF) == 0xF);
+        self.regs.flag(Flag::Z, result == 0);
+        self.regs.flag(Flag::N, true);
+        self.regs.flag(Flag::H, (result & 0xF) == 0);
     }
 
     fn add16(&mut self, i: Arg16) {
-        let operand: u16 = self.read_arg16(i);
-        let result: u32 = read_reg_pair!(self.regs, h, l) as u32 + operand as u32;
-        write_reg_pair!(self.regs, h, l, result as u16);
-        self.regs.reset_flag(Flag::N);
-        unborrow!(self.regs.update_flag(Flag::H, (read_reg_pair!(self.regs, h, l) & 0xFFF +
-                                                  operand & 0xFFF) > 0xFFF));
-        self.regs.update_flag(Flag::C, result > 0xFFFF);
+        let operand = self.read_arg16(i);
+        let result = self.regs.hl().wrapping_add(operand);
+        self.regs.flag(Flag::N, false);
+        unborrow!(self.regs.flag(Flag::H, (self.regs.hl() & 0xFFF + operand & 0xFFF) > 0xFFF));
+        unborrow!(self.regs.flag(Flag::C, self.regs.hl() > (0xFFFF - operand)));
+        self.regs.set_hl(result);
     }
 
     fn add16sp(&mut self, i: i8) {
-        let result: u16 = if i < 0 {
-            self.regs.sp - (-i as u16)
-        } else {
-            self.regs.sp + (i as u16)
-        };
-        self.regs.sp = result;
-        self.regs.reset_flag(Flag::Z);
-        self.regs.reset_flag(Flag::N);
-        // TODO(David): Why does this work?
-        let temp: u16 = self.regs.sp ^ (i as u16) ^ result;
-        self.regs.update_flag(Flag::H, temp & 0x10 == 0x10);
-        self.regs.update_flag(Flag::C, temp & 0x100 == 0x100);
+        // Sign extend operand then convert to unsigned (preserving sign bits).
+        let operand = i as i16 as u16;
+        self.regs.flag(Flag::Z, false);
+        self.regs.flag(Flag::N, false);
+        unborrow!(self.regs.flag(Flag::H, (self.regs.sp & 0x000F) + (operand & 0x000F) > 0x000F));
+        unborrow!(self.regs.flag(Flag::C, (self.regs.sp & 0x00FF) + (operand & 0x00FF) > 0x00FF));
+        self.regs.sp = self.regs.sp.wrapping_add(operand);
     }
 
     fn inc16(&mut self, io: Arg16) {
-        let result = self.read_arg16(io) + 1;
+        let result = self.read_arg16(io).wrapping_add(1);
         self.write_arg16(io, result);
     }
 
     fn dec16(&mut self, io: Arg16) {
-        let result = self.read_arg16(io) - 1;
+        let result = self.read_arg16(io).wrapping_sub(1);
         self.write_arg16(io, result);
     }
 
@@ -413,35 +420,41 @@ impl CpuOps for Cpu {
     fn nop(&mut self) {}
 
     fn daa(&mut self) {
-        panic!("Unsupported instruction DAA");
-        // TODO(David): Ambiguous spec, test this
-        // A stores a number up to 255. In BCD form each nibble would store a single digit,
-        // therefore the maximum number that can be stored is 99.
+        let mut a = self.regs.a;
+        let mut adjust = if self.regs.get_flag(Flag::C) { 0x60 } else { 0x00 };
+        if self.regs.get_flag(Flag::H) {
+            adjust |= 0x06;
+        }
+        if !self.regs.get_flag(Flag::N) {
+            if a & 0x0F > 0x09 { adjust |= 0x06; };
+            if a > 0x99 { adjust |= 0x60; };
+            a = a.wrapping_add(adjust);
+        } else {
+            a = a.wrapping_sub(adjust);
+        }
 
-        // Source:
-        // The DAA instruction corrects this invalid result. It checks to see if there was a carry
-        // out of the low order BCD digit and adjusts the value (by adding six to it) if there was
-        // an overflow. After adjusting for overflow out of the L.O. digit, the DAA instruction
-        // repeats this process for the H.O. digit. DAA sets the carry flag if the was a (decimal)
-        // carry out of the H.O. digit of the operation.
+        self.regs.flag(Flag::C, adjust >= 0x60);
+        self.regs.flag(Flag::H, false);
+        self.regs.flag(Flag::Z, a == 0);
+        self.regs.a = a;
     }
 
     fn cpl(&mut self) {
         self.regs.a = !self.regs.a;
-        self.regs.set_flag(Flag::N);
-        self.regs.set_flag(Flag::H);
+        self.regs.flag(Flag::N, true);
+        self.regs.flag(Flag::H, true);
     }
 
     fn ccf(&mut self) {
-        self.regs.reset_flag(Flag::N);
-        self.regs.reset_flag(Flag::H);
-        unborrow!(self.regs.update_flag(Flag::C, !self.regs.get_flag(Flag::C)));
+        self.regs.flag(Flag::N, false);
+        self.regs.flag(Flag::H, false);
+        unborrow!(self.regs.flag(Flag::C, !self.regs.get_flag(Flag::C)));
     }
 
     fn scf(&mut self) {
-        self.regs.reset_flag(Flag::N);
-        self.regs.reset_flag(Flag::H);
-        self.regs.set_flag(Flag::C);
+        self.regs.flag(Flag::N, false);
+        self.regs.flag(Flag::H, false);
+        self.regs.flag(Flag::C, true);
     }
 
     fn halt(&mut self) {
@@ -468,10 +481,10 @@ impl CpuOps for Cpu {
         let msb = value >> 7;
         let result = (value << 1) + msb;
         self.write_arg8(io, result);
-        self.regs.update_flag(Flag::Z, result == 0);
-        self.regs.reset_flag(Flag::N);
-        self.regs.reset_flag(Flag::H);
-        self.regs.update_flag(Flag::C, msb == 1);
+        self.regs.flag(Flag::Z, result == 0);
+        self.regs.flag(Flag::N, false);
+        self.regs.flag(Flag::H, false);
+        self.regs.flag(Flag::C, msb == 1);
     }
 
     fn rl(&mut self, io: Arg8) {
@@ -479,10 +492,10 @@ impl CpuOps for Cpu {
         let value = self.read_arg8(io);
         let result = value << 1 + if self.regs.get_flag(Flag::C) { 1 } else { 0 };
         self.write_arg8(io, result);
-        self.regs.update_flag(Flag::Z, result == 0);
-        self.regs.reset_flag(Flag::N);
-        self.regs.reset_flag(Flag::H);
-        self.regs.update_flag(Flag::C, value & 0x80 == 0x80);
+        self.regs.flag(Flag::Z, result == 0);
+        self.regs.flag(Flag::N, false);
+        self.regs.flag(Flag::H, false);
+        self.regs.flag(Flag::C, value & 0x80 == 0x80);
     }
 
     fn rrc(&mut self, io: Arg8) {
@@ -490,40 +503,40 @@ impl CpuOps for Cpu {
         let lsb = value & 0x1;
         let result = (value >> 1) + (lsb << 7);
         self.write_arg8(io, result);
-        self.regs.update_flag(Flag::Z, result == 0);
-        self.regs.reset_flag(Flag::N);
-        self.regs.reset_flag(Flag::H);
-        self.regs.update_flag(Flag::C, lsb == 1);
+        self.regs.flag(Flag::Z, result == 0);
+        self.regs.flag(Flag::N, false);
+        self.regs.flag(Flag::H, false);
+        self.regs.flag(Flag::C, lsb == 1);
     }
 
     fn rr(&mut self, io: Arg8) {
         let value = self.read_arg8(io);
         let result = (value >> 1) + if self.regs.get_flag(Flag::C) { 0x80 } else { 0 };
         self.write_arg8(io, result);
-        self.regs.update_flag(Flag::Z, result == 0);
-        self.regs.reset_flag(Flag::N);
-        self.regs.reset_flag(Flag::H);
-        self.regs.update_flag(Flag::C, value & 0x1 == 0x1);
+        self.regs.flag(Flag::Z, result == 0);
+        self.regs.flag(Flag::N, false);
+        self.regs.flag(Flag::H, false);
+        self.regs.flag(Flag::C, value & 0x1 == 0x1);
     }
 
     fn sla(&mut self, io: Arg8) {
         let value = self.read_arg8(io);
         let result = value << 1;
         self.write_arg8(io, result);
-        self.regs.update_flag(Flag::Z, result == 0);
-        self.regs.reset_flag(Flag::N);
-        self.regs.reset_flag(Flag::H);
-        self.regs.update_flag(Flag::C, value & 0x80 == 0x80);
+        self.regs.flag(Flag::Z, result == 0);
+        self.regs.flag(Flag::N, false);
+        self.regs.flag(Flag::H, false);
+        self.regs.flag(Flag::C, value & 0x80 == 0x80);
     }
 
     fn sra(&mut self, io: Arg8) {
         let value = self.read_arg8(io);
         let result = value >> 1 | value & 0x80;
         self.write_arg8(io, result);
-        self.regs.update_flag(Flag::Z, result == 0);
-        self.regs.reset_flag(Flag::N);
-        self.regs.reset_flag(Flag::H);
-        self.regs.update_flag(Flag::C, value & 0x1 == 0x1);
+        self.regs.flag(Flag::Z, result == 0);
+        self.regs.flag(Flag::N, false);
+        self.regs.flag(Flag::H, false);
+        self.regs.flag(Flag::C, value & 0x1 == 0x1);
     }
 
     fn swap(&mut self, io: Arg8) {
@@ -535,10 +548,10 @@ impl CpuOps for Cpu {
         let value = self.read_arg8(io);
         let result = value >> 1;
         self.write_arg8(io, result);
-        self.regs.update_flag(Flag::Z, result == 0);
-        self.regs.reset_flag(Flag::N);
-        self.regs.reset_flag(Flag::H);
-        self.regs.update_flag(Flag::C, value & 0x1 == 0x1);
+        self.regs.flag(Flag::Z, result == 0);
+        self.regs.flag(Flag::N, false);
+        self.regs.flag(Flag::H, false);
+        self.regs.flag(Flag::C, value & 0x1 == 0x1);
     }
 
     // bit manipulation
@@ -547,9 +560,9 @@ impl CpuOps for Cpu {
             panic!("Bit index out of bounds");
         }
         let value = self.read_arg8(i);
-        self.regs.update_flag(Flag::Z, (value >> bit_id) & 0x1 == 0);
-        self.regs.reset_flag(Flag::N);
-        self.regs.set_flag(Flag::H);
+        self.regs.flag(Flag::Z, value & (1 << bit_id) == 0);
+        self.regs.flag(Flag::N, false);
+        self.regs.flag(Flag::H, true);
     }
 
     fn set(&mut self, bit_id: u8, io: Arg8) {
@@ -572,30 +585,25 @@ impl CpuOps for Cpu {
     fn jp(&mut self, cond: Cond, dest: Arg16) {
         if self.check_condition(cond) {
             self.regs.pc = self.read_arg16(dest);
-        } 
+        }
     }
 
     fn jr(&mut self, cond: Cond, offset: i8) {
         if self.check_condition(cond) {
-            if offset < 0 {
-                self.regs.pc -= -offset as u16;
-            } else {
-                self.regs.pc += offset as u16;
-            }
+            self.regs.pc = ((self.regs.pc as i32) + offset as i32) as u16
         }
     }
 
     fn call(&mut self, cond: Cond, dest: Arg16) {
-        // CALL is implemented as PUSH SP; JP cond dest
         if self.check_condition(cond) {
-            unborrow!(self.push_u16(self.regs.pc + 3)); // CALL is 3 bytes
-            self.jp(Cond::None, dest);
+            unborrow!(self.push_u16(self.regs.pc + 2));
+            self.regs.pc = self.read_arg16(dest);
         }
     }
 
     fn rst(&mut self, offset: u8) {
-        unborrow!(self.push_u16(self.regs.pc + 2)); // RST is 2 bytes? TODO(David): Test
-        self.jp(Cond::None, Arg16::Imm(offset as u16));
+        unborrow!(self.push_u16(self.regs.pc));
+        self.regs.pc = offset as u16;
     }
 
     fn ret(&mut self, cond: Cond) {
@@ -622,10 +630,12 @@ mod test {
     use cpu::registers::Reg16::*;
 
     fn test_u8() -> u8 {
+        // 0x90
         144u8
     }
 
     fn test_u16() -> u16 {
+        // 0xBA0C
         47628u16
     }
 
@@ -647,7 +657,7 @@ mod test {
         let mut cpu = &mut init_cpu();
         cpu.ld16(Arg16::Reg(BC), Arg16::Imm(test_u16()));
         cpu.ld16(Arg16::Reg(DE), Arg16::Reg(BC));
-        assert_eq!(read_reg_pair!(cpu.regs, b, c), test_u16());
-        assert_eq!(read_reg_pair!(cpu.regs, b, c), read_reg_pair!(cpu.regs, d, e));
+        assert_eq!(cpu.regs.bc(), test_u16());
+        assert_eq!(cpu.regs.bc(), cpu.regs.de());
     }
 }

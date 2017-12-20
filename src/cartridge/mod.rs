@@ -62,7 +62,7 @@ impl Cartridge {
         let cartridge_type = contents[0x0147];
         println!("status: Cartridge Type: {:x}", cartridge_type);
         let mbc: Box<MemoryBankController> = match cartridge_type {
-            0x0 | 0x8 | 0x9  => Box::new(ROM::new(&contents[0..0x7FFF])),
+            0x0 | 0x8 | 0x9  => Box::new(ROM::new(&contents[0..0x8000])),
             0x1 | 0x2 | 0x3 => Box::new(MBC1::new(contents.as_slice())),
             _ => panic!("ERROR: unknown cartridge type")
         };
