@@ -11,9 +11,16 @@ pub struct Cpu {
     pub running: bool,
     memory: Rc<RefCell<Memory>>,
     pub regs: Registers,
+    pub clock: Clock,
+    pub last_instr_time: u16,
 
     interrupts_enabled: bool,
     halted: bool
+}
+
+pub struct Clock {
+    pub m: u32, // 4.1kHz
+    pub t: u32  // 1.0kHz
 }
 
 fn get_address(cpu: &Cpu, a: &IndirectAddr) -> u16 {
@@ -33,6 +40,11 @@ impl Cpu {
             running: true,
             memory: memory,
             regs: Registers::new(),
+            clock: Clock {
+                m: 0,
+                t: 0
+            },
+            last_instr_time: 0,
             interrupts_enabled: false,
             halted: false
         }
@@ -44,23 +56,26 @@ impl Cpu {
         if self.halted {
             // Increase cycle count.
         } else {
-            let pc = self.regs.pc;
-            let instr = self.fetch_instr();
-            let state = self.dump_state_small();
-            println!("0x{:04x}\t{}\t{:?}", pc, state, instr);
-            self.dispatch(instr);
-
             if self.regs.pc == 0x100 {
                 self.memory.borrow_mut().set_boot_mode(false);
                 println!("status: Finished booting");
             }
+
+            self.last_instr_time = 0;
+            //let pc = self.regs.pc;
+            let instr = self.fetch_instr();
+            //let state = self.dump_state_small();
+            self.dispatch(instr);
+            //println!("0x{:04x}\t{}\t{}\t{:?}", pc, state, self.last_instr_time, instr);
+            self.clock.m = self.clock.m.wrapping_add(self.last_instr_time as u32);
+            self.clock.t = self.clock.t.wrapping_add(self.last_instr_time as u32 * 4);
         }
     }
 
     fn check_for_interrupt(&mut self) {
         let interrupt_register = self.mem_read_u8(INTERRUPTS_ENABLED_REG);
         if interrupt_register & INTERRUPT_ENABLE_VBLANK != 0 {
-            println!("INTERRUPT_ENABLE_VBLANK")
+            //println!("INTERRUPT_ENABLE_VBLANK")
         } else if interrupt_register & INTERRUPT_ENABLE_LCDC != 0 {
             println!("INTERRUPT_ENABLE_LCDC")
         } else if interrupt_register & INTERRUPT_ENABLE_TIMER != 0 {
@@ -84,30 +99,51 @@ impl Cpu {
     }
 
     fn push_u16(&mut self, value: u16) {
-        self.regs.sp -= 2;
+        //println!("push {:x}", self.regs.sp);
+        self.regs.sp = self.regs.sp.wrapping_sub(2);
         unborrow!(self.mem_write_u16(self.regs.sp, value));
     }
 
     fn pop_u16(&mut self) -> u16 {
-        let result = self.mem_read_u16(self.regs.sp);
-        self.regs.sp += 2;
+        let result = unborrow!(self.mem_read_u16(self.regs.sp));
+        //println!("pop {:x}", self.regs.sp);
+        self.regs.sp = self.regs.sp.wrapping_add(2);
         result
     }
 
+    // Cycles
+    fn read_cycle(&mut self) {
+        self.last_instr_time += 1;
+    }
+
+    fn write_cycle(&mut self) {
+        self.last_instr_time += 1;
+    }
+
+    fn internal_cycle(&mut self) {
+        self.last_instr_time += 1;
+    }
+
     // Memory reading helper functions
-    fn mem_read_u8(&self, addr: u16) -> u8 {
+    fn mem_read_u8(&mut self, addr: u16) -> u8 {
+        self.read_cycle();
         self.memory.borrow().read_u8(addr)
     }
 
-    fn mem_read_u16(&self, addr: u16) -> u16 {
+    fn mem_read_u16(&mut self, addr: u16) -> u16 {
+        self.read_cycle();
+        self.read_cycle();
         self.memory.borrow().read_u16(addr)
     }
 
     fn mem_write_u8(&mut self, addr: u16, data: u8) {
+        self.write_cycle();
         self.memory.borrow_mut().write_u8(addr, data);
     }
 
     fn mem_write_u16(&mut self, addr: u16, data: u16) {
+        self.write_cycle();
+        self.write_cycle();
         self.memory.borrow_mut().write_u16(addr, data);
     }
 
@@ -140,13 +176,13 @@ impl Cpu {
 
 impl Fetcher for Cpu {
     fn fetch_u8(&mut self) -> u8 {
-        let byte = self.mem_read_u8(self.regs.pc);
+        let byte = unborrow!(self.mem_read_u8(self.regs.pc));
         self.regs.pc += 1;
         byte
     }
 
     fn fetch_u16(&mut self) -> u16 {
-        let word = self.mem_read_u16(self.regs.pc);
+        let word = unborrow!(self.mem_read_u16(self.regs.pc));
         self.regs.pc += 2;
         word
     }
@@ -154,7 +190,7 @@ impl Fetcher for Cpu {
     
 // Interpreter implementation of the CPU ops defined in the ops module
 impl CpuOps for Cpu {
-    fn read_arg8(&self, arg: Arg8) -> u8 {
+    fn read_arg8(&mut self, arg: Arg8) -> u8 {
         match arg {
             Arg8::Reg(r) => match r {
                 Reg8::A => self.regs.a,
@@ -198,7 +234,7 @@ impl CpuOps for Cpu {
         }
     }
 
-    fn read_arg16(&self, arg: Arg16) -> u16 {
+    fn read_arg16(&mut self, arg: Arg16) -> u16 {
         match arg {
             Arg16::Reg(r) => match r {
                 Reg16::AF => self.regs.af(),
@@ -245,12 +281,12 @@ impl CpuOps for Cpu {
     
     fn ldd(&mut self, o: Arg8, i: Arg8) {
         self.ld(o, i);
-        self.dec16(Arg16::Reg(Reg16::HL));
+        unborrow!(self.regs.set_hl(self.regs.hl().wrapping_sub(1)));
     }
 
     fn ldi(&mut self, o: Arg8, i: Arg8) {
         self.ld(o, i);
-        self.inc16(Arg16::Reg(Reg16::HL));
+        unborrow!(self.regs.set_hl(self.regs.hl().wrapping_add(1)));
     }
 
     fn ldh(&mut self, o: Arg8, i: Arg8){
@@ -269,6 +305,10 @@ impl CpuOps for Cpu {
     fn ld16(&mut self, o: Arg16, i: Arg16) {
         let value = self.read_arg16(i);
         self.write_arg16(o, value);
+        // LD SP, HL is special and takes an internal cycle to execute.
+        if o == Arg16::Reg(Reg16::SP) && i == Arg16::Reg(Reg16::HL) {
+            self.internal_cycle();
+        }
     }
 
     fn ldhl16(&mut self, offset: i8) {
@@ -279,10 +319,12 @@ impl CpuOps for Cpu {
         unborrow!(self.regs.flag(Flag::H, (self.regs.sp & 0x000F) + (operand & 0x000F) > 0x000F));
         unborrow!(self.regs.flag(Flag::C, (self.regs.sp & 0x00FF) + (operand & 0x00FF) > 0x00FF));
         unborrow!(self.regs.set_hl(self.regs.sp.wrapping_add(operand)));
+        self.internal_cycle();
     }
 
     fn push(&mut self, i: Arg16) {
         let content = self.read_arg16(i);
+        self.internal_cycle();
         self.push_u16(content);
     }
 
@@ -394,6 +436,7 @@ impl CpuOps for Cpu {
         unborrow!(self.regs.flag(Flag::H, (self.regs.hl() & 0xFFF + operand & 0xFFF) > 0xFFF));
         unborrow!(self.regs.flag(Flag::C, self.regs.hl() > (0xFFFF - operand)));
         self.regs.set_hl(result);
+        self.internal_cycle();
     }
 
     fn add16sp(&mut self, i: i8) {
@@ -404,16 +447,20 @@ impl CpuOps for Cpu {
         unborrow!(self.regs.flag(Flag::H, (self.regs.sp & 0x000F) + (operand & 0x000F) > 0x000F));
         unborrow!(self.regs.flag(Flag::C, (self.regs.sp & 0x00FF) + (operand & 0x00FF) > 0x00FF));
         self.regs.sp = self.regs.sp.wrapping_add(operand);
+        self.internal_cycle();
+        self.internal_cycle();
     }
 
     fn inc16(&mut self, io: Arg16) {
         let result = self.read_arg16(io).wrapping_add(1);
         self.write_arg16(io, result);
+        self.internal_cycle();
     }
 
     fn dec16(&mut self, io: Arg16) {
         let result = self.read_arg16(io).wrapping_sub(1);
         self.write_arg16(io, result);
+        self.internal_cycle();
     }
 
     // misc
@@ -583,32 +630,41 @@ impl CpuOps for Cpu {
 
     // control
     fn jp(&mut self, cond: Cond, dest: Arg16) {
+        let dest_addr = self.read_arg16(dest);
         if self.check_condition(cond) {
-            self.regs.pc = self.read_arg16(dest);
+            self.regs.pc = dest_addr;
+            self.internal_cycle();
         }
     }
 
     fn jr(&mut self, cond: Cond, offset: i8) {
         if self.check_condition(cond) {
-            self.regs.pc = ((self.regs.pc as i32) + offset as i32) as u16
+            self.regs.pc = ((self.regs.pc as i32) + offset as i32) as u16;
+            self.internal_cycle();
         }
     }
 
     fn call(&mut self, cond: Cond, dest: Arg16) {
         if self.check_condition(cond) {
-            unborrow!(self.push_u16(self.regs.pc + 2));
+            // The current value of the program counter is the _next_ instruction, so push that to
+            // the stack.
+            unborrow!(self.push_u16(self.regs.pc));
             self.regs.pc = self.read_arg16(dest);
+            self.internal_cycle();
         }
     }
 
     fn rst(&mut self, offset: u8) {
         unborrow!(self.push_u16(self.regs.pc));
         self.regs.pc = offset as u16;
+        self.internal_cycle();
     }
 
     fn ret(&mut self, cond: Cond) {
+        self.internal_cycle();
         if self.check_condition(cond) {
             self.regs.pc = self.pop_u16();
+            self.internal_cycle();
         }
     }
 

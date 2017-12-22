@@ -63,7 +63,7 @@ pub enum Cont<R> {
 }
 
 // Synchronised with the trait below
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Instruction {
     // 8-bit load
     LD(Arg8, Arg8),     // LD out, in
@@ -124,9 +124,9 @@ pub enum Instruction {
 }
     
 pub trait CpuOps {
-    fn read_arg8(&self, arg: Arg8) -> u8;
+    fn read_arg8(&mut self, arg: Arg8) -> u8;
     fn write_arg8(&mut self, arg: Arg8, data: u8);
-    fn read_arg16(&self, arg: Arg16) -> u16;
+    fn read_arg16(&mut self, arg: Arg16) -> u16;
     fn write_arg16(&mut self, arg: Arg16, data: u16);
     // 8-bit load
     fn ld(&mut self, o: Arg8, i: Arg8);

@@ -16,14 +16,10 @@ use std::cell::RefCell;
 use cpu::interpreter::Cpu;
 use memory::Memory;
 use cartridge::Cartridge;
-use gpu::Gpu;
-
-use time::{Duration, PreciseTime};
 
 pub struct Emulator {
     cpu: Cpu,
     memory: Rc<RefCell<Memory>>,
-    gpu: Gpu
 }
 
 impl Emulator {
@@ -31,8 +27,7 @@ impl Emulator {
         let m = Rc::new(RefCell::new(Memory::new()));
         Emulator {
             cpu: Cpu::new(m.clone()),
-            memory: m.clone(),
-            gpu: Gpu::new()
+            memory: m.clone()
         }
     }
 
@@ -48,44 +43,40 @@ impl Emulator {
         self.memory.borrow_mut().load_bios(BOOTROM);
     }
 
-    pub fn run(&mut self) {
-        let mut start = PreciseTime::now();
-        let mut cycles = 0;
-        loop {
-            let cpu_start = PreciseTime::now();
-
+    fn frame(&mut self) -> bool {
+        let frame_clock = self.cpu.clock.t + 70224;
+        while self.cpu.clock.t < frame_clock {
             // CPU.
             self.cpu.tick();
             if !self.cpu.running {
-                panic!("CPU has stopped running");
-                //break;
+                println!("status: CPU has stopped running");
+                return false;
             }
 
-            let cpu_time = cpu_start.to(PreciseTime::now());
-
-            /*
-            let gpu_start = PreciseTime::now();
-            if !self.gpu.tick() {
-                break;
-            }
-            let gpu_time = gpu_start.to(PreciseTime::now());
-            */
-
-            cycles += 1;
-            let now = PreciseTime::now();
-            if start.to(now) >= Duration::seconds(1) {
-                println!("status: Cycles per second: {} - CPU time: {}ms", cycles,
-                    cpu_time.num_microseconds().unwrap() as f32 / 1000.0);
-                cycles = 0;
-                start = now;
+            // MMU (and hardware).
+            if !self.memory.borrow_mut().tick((self.cpu.last_instr_time * 4) as u32) {
+                return false;
             }
         }
+        true
+    }
+
+    pub fn run(&mut self) {
+        // Run frames.
+        loop {
+            if !self.frame() {
+                break;
+            }
+        }
+
+        // Dump memory on exit.
+        println!("{}", self.memory.borrow().dump_state(0x8000..0x9FFF));
     }
 }
 
 fn main() {
     let mut device = Emulator::new();
-    device.load("roms/loopz-rom.gb");
+    device.load("roms/opus5.gb");
     device.boot();
     device.run();
 }

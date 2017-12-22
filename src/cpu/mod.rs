@@ -7,7 +7,7 @@ mod decoder;
 pub mod interpreter;
 
 // Control Conditions
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Cond {
     None, NZ, Z, NC, C
 }

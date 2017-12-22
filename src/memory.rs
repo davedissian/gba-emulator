@@ -1,16 +1,20 @@
 use cartridge::Cartridge;
+use gpu::Gpu;
+use std::ops::Range;
 
 pub struct Memory {
     pub boot_mode: bool,
 
+    // Hardware
     cartridge: Option<Cartridge>,
+    gpu: Gpu,
 
     // Internal RAM structures
     bios: [u8; 0x100],
-    vram: [u8; 8192],
+    //vram: [u8; 8192],
     bank: [u8; 8192],
     internal: [u8; 8192],
-    oam: [u8; 160],
+    //oam: [u8; 160],
     zero_page_ram: [u8; 127],
 
     // Registers
@@ -52,10 +56,10 @@ impl Memory {
             bios: [0u8; 0x100],
 
             cartridge: None,
-            vram: [0u8; 8192],
+            gpu: Gpu::new(),
+
             bank: [0u8; 8192],
             internal: [0u8; 8192],
-            oam: [0u8; 160],
             zero_page_ram: [0u8; 127],
 
             dmg_status: 0,
@@ -86,6 +90,11 @@ impl Memory {
         self.boot_mode = boot;
     }
 
+    // Tick
+    pub fn tick(&mut self, cycles: u32) -> bool {
+        self.gpu.tick(cycles)
+    }
+
     // Memory Reading
     pub fn read_u8(&self, addr: u16) -> u8 {
         match addr {
@@ -100,7 +109,7 @@ impl Memory {
                     }
                 }
             },
-            0x8000...0x9FFF => self.vram[addr as usize - 0x8000],
+            0x8000...0x9FFF => self.gpu.read_u8(addr),
             0xA000...0xBFFF => {
                 if let Some(ref c) = self.cartridge {
                     c.read_u8(addr)
@@ -110,11 +119,10 @@ impl Memory {
             },
             0xC000...0xDFFF => self.internal[addr as usize - 0xC000],
             0xE000...0xFDFF => self.internal[addr as usize - 0xE000],
-            0xFE00...0xFE9F => self.oam[addr as usize - 0xFE00],
+            0xFE00...0xFE9F => self.gpu.read_u8(addr),
             0xFEA0...0xFEFF => { println!("WARNING: Reading from unused memory area. Addr = 0x{:X}", addr); 0 },
             // TODO: 0xFF00..0xFF7F => IO PORTS IN CUSTOM IO MODULE (which should contain registers).
-            0xFF00...0xFF4B => { println!("WARNING: Ignoring IO port read. Addr = 0x{:X}", addr); 0 }, // TODO: Implement.
-            0xFF4C...0xFF7F => self.read_u8_register(addr),
+            0xFF00...0xFF7F => self.read_u8_io(addr),
             0xFF80...0xFFFE => self.zero_page_ram[addr as usize - 0xFF80],
             0xFFFF => self.interrupts_enabled,
             _ => panic!("ERROR: Out of bounds memory read. Addr = 0x{:X}", addr),
@@ -135,7 +143,7 @@ impl Memory {
                     panic!("ERROR: No cartridge is loaded!");
                 }
             },
-            0x8000...0x9FFF => self.vram[addr as usize - 0x8000] = value,
+            0x8000...0x9FFF => self.gpu.write_u8(addr, value),
             0xA000...0xBFFF =>  {
                 if let Some(ref mut c) = self.cartridge {
                     c.write_u8(addr, value);
@@ -145,10 +153,9 @@ impl Memory {
             },
             0xC000...0xDFFF => self.internal[addr as usize - 0xC000] = value,
             0xE000...0xFDFF => self.internal[addr as usize - 0xE000] = value,
-            0xFE00...0xFE9F => self.oam[addr as usize - 0xFE00] = value,
+            0xFE00...0xFE9F => self.gpu.write_u8(addr, value),
             0xFEA0...0xFEFF => println!("WARNING: Writing to unused memory area. Addr = 0x{:X}", addr),
-            0xFF00...0xFF4B => println!("WARNING: Ignoring IO port write. Addr = 0x{:X}", addr), // TODO: Implement.
-            0xFF4C...0xFF7F => self.write_u8_register(addr, value),
+            0xFF00...0xFF7F => self.write_u8_io(addr, value),
             0xFF80...0xFFFE => self.zero_page_ram[addr as usize - 0xFF80] = value,
             0xFFFF => self.interrupts_enabled = value,
             _ => panic!("ERROR: Out of bounds memory write. Addr = 0x{:X}", addr),
@@ -161,44 +168,75 @@ impl Memory {
     }
 
     // Registers
-    fn read_u8_register(&self, addr: u16) -> u8{
-        if addr == DMG_STATUS_REG {
-            self.dmg_status
-        } else if self.cgb_enabled {
-            match addr {
-                CGB_INFRARED_PORT_REG       => { println!("WARNING: CGB Infrared Unsupported"); 0 },
-                CGB_WRAM_BANK_SELECT        => self.cgb_wram_bank_select,
-                CGB_DOUBLE_SPEED_PREP_REG   => self.cgb_double_speed_prep,
-                CGB_HDMA_SOURCE_HIGH_REG    => self.cgb_hdma_src_high,
-                CGB_HDMA_SOURCE_LOW_REG     => self.cgb_hdma_src_low,
-                CGB_HDMA_DEST_HIGH_REG      => self.cgb_hdma_dest_high,
-                CGB_HDMA_DEST_LOW_REG       => self.cgb_hdma_dest_low,
-                CGB_HDMA_REG                => { println!("WARNING: HDMA unsupported"); 0 },
-                _                           => { println!("WARNING: Reading from unknown MMU register: 0x{:X}", addr); 0 }
+    fn read_u8_io(&self, addr: u16) -> u8{
+        match addr {
+            0xFF40...0xFF4F => self.gpu.read_u8(addr),
+            DMG_STATUS_REG => self.dmg_status,
+            _ => if self.cgb_enabled {
+                match addr {
+                    CGB_INFRARED_PORT_REG => {
+                        println!("WARNING: CGB Infrared Unsupported");
+                        0
+                    },
+                    CGB_WRAM_BANK_SELECT => self.cgb_wram_bank_select,
+                    CGB_DOUBLE_SPEED_PREP_REG => self.cgb_double_speed_prep,
+                    CGB_HDMA_SOURCE_HIGH_REG => self.cgb_hdma_src_high,
+                    CGB_HDMA_SOURCE_LOW_REG => self.cgb_hdma_src_low,
+                    CGB_HDMA_DEST_HIGH_REG => self.cgb_hdma_dest_high,
+                    CGB_HDMA_DEST_LOW_REG => self.cgb_hdma_dest_low,
+                    CGB_HDMA_REG => {
+                        println!("WARNING: HDMA unsupported");
+                        0
+                    },
+                    _ => {
+                        println!("WARNING: Reading from unknown MMU register: 0x{:X}", addr);
+                        0
+                    }
+                }
+            } else {
+                println!("WARNING: Cannot read from 0x{:08X} (CGB register) in non-CGB mode!", addr);
+                0
             }
-        } else {
-            println!("WARNING: Cannot read from 0x{:08X} (CGB register) in non-CGB mode!", addr);
-            0
         }
     }
     
-    fn write_u8_register(&mut self, addr: u16, value: u8) {
-        if addr == DMG_STATUS_REG {
-            self.dmg_status = value;
-        } else if self.cgb_enabled {
-            match addr {
-                CGB_INFRARED_PORT_REG       => println!("WARNING: CGB Infrared Unsupported"),
-                CGB_WRAM_BANK_SELECT        => self.cgb_wram_bank_select = value,
-                CGB_DOUBLE_SPEED_PREP_REG   => self.cgb_double_speed_prep = value,
-                CGB_HDMA_SOURCE_HIGH_REG    => self.cgb_hdma_src_high = value,
-                CGB_HDMA_SOURCE_LOW_REG     => self.cgb_hdma_src_low = value,
-                CGB_HDMA_DEST_HIGH_REG      => self.cgb_hdma_dest_high = value,
-                CGB_HDMA_DEST_LOW_REG       => self.cgb_hdma_dest_low = value,
-                CGB_HDMA_REG                => println!("WARNING: HDMA unsupported"),
-                _                           => println!("WARNING: Writing to unknown MMU register: 0x{:X}", addr)
+    fn write_u8_io(&mut self, addr: u16, value: u8) {
+        match addr {
+            0xFF40...0xFF4F => self.gpu.write_u8(addr, value),
+            DMG_STATUS_REG => self.dmg_status = value,
+            _ => if self.cgb_enabled {
+                match addr {
+                    CGB_INFRARED_PORT_REG => println!("WARNING: CGB Infrared Unsupported"),
+                    CGB_WRAM_BANK_SELECT => self.cgb_wram_bank_select = value,
+                    CGB_DOUBLE_SPEED_PREP_REG => self.cgb_double_speed_prep = value,
+                    CGB_HDMA_SOURCE_HIGH_REG => self.cgb_hdma_src_high = value,
+                    CGB_HDMA_SOURCE_LOW_REG => self.cgb_hdma_src_low = value,
+                    CGB_HDMA_DEST_HIGH_REG => self.cgb_hdma_dest_high = value,
+                    CGB_HDMA_DEST_LOW_REG => self.cgb_hdma_dest_low = value,
+                    CGB_HDMA_REG => println!("WARNING: HDMA unsupported"),
+                    _ => println!("WARNING: Writing to unknown MMU register: 0x{:X}", addr)
+                }
+            } else {
+                println!("WARNING: Cannot write to 0x{:X} (CGB register) in non-CGB mode!", addr);
             }
-        } else {
-            println!("WARNING: Cannot write to 0x{:X} (CGB register) in non-CGB mode!", addr);
         }
+    }
+
+    // Debugging.
+    pub fn dump_state(&self, addr_range: Range<u16>) -> String {
+        let mut out_str = String::new();
+        let mut counter = 0;
+        let line_length = 16;
+        let mut addr_line = String::new();
+        for addr in addr_range {
+            addr_line.push_str(&format!("{:02x} ", self.read_u8(addr)));
+            counter += 1;
+            if counter >= line_length {
+                counter = 0;
+                out_str.push_str(&format!("0x{:04x}-0x{:04x} | {}\n", addr - line_length + 1, addr, addr_line.as_str()));
+                addr_line = String::new();
+            }
+        }
+        return out_str;
     }
 }
