@@ -1,6 +1,9 @@
 use cartridge::Cartridge;
 use gpu::Gpu;
+use input::Input;
 use std::ops::Range;
+use std::rc::Rc;
+use std::cell::RefCell;
 
 pub struct Memory {
     pub boot_mode: bool,
@@ -8,6 +11,7 @@ pub struct Memory {
     // Hardware
     cartridge: Option<Cartridge>,
     gpu: Gpu,
+    input: Rc<RefCell<Input>>,
 
     // Internal RAM structures
     bios: [u8; 0x100],
@@ -51,12 +55,27 @@ pub const INTERRUPT_ENABLE_SERIAL_IO: u8    = 0b00001000;
 
 impl Memory {
     pub fn new() -> Memory {
-        Memory {
+        let mut memory = Memory {
             boot_mode: true,
             bios: [0u8; 0x100],
 
             cartridge: None,
             gpu: Gpu::new(),
+            input: Rc::new(RefCell::new(Input::new(|code: super::gpu::KeyCode| -> Option<super::input::InputButton> {
+                use super::gpu::KeyCode;
+                use super::input::InputButton;
+                match code {
+                    KeyCode::Z => Some(InputButton::A),
+                    KeyCode::X => Some(InputButton::B),
+                    KeyCode::Space => Some(InputButton::Select),
+                    KeyCode::Return => Some(InputButton::Start),
+                    KeyCode::Left => Some(InputButton::Left),
+                    KeyCode::Right => Some(InputButton::Right),
+                    KeyCode::Up => Some(InputButton::Up),
+                    KeyCode::Down => Some(InputButton::Down),
+                    _ => None,
+                }
+            }))),
 
             bank: [0u8; 8192],
             internal: [0u8; 8192],
@@ -72,7 +91,12 @@ impl Memory {
             cgb_hdma_src_high: 0,
             cgb_hdma_dest_low: 0,
             cgb_hdma_dest_high: 0
-        }
+        };
+        let input_ref = memory.input.clone();
+        memory.gpu.set_key_callback(Box::new(move |code: super::gpu::KeyCode, state: super::gpu::KeyState| {
+            input_ref.borrow_mut().on_key_input(code, state);
+        }));
+        memory
     }
 
     // Load cartridge
@@ -170,6 +194,7 @@ impl Memory {
     // Registers
     fn read_u8_io(&self, addr: u16) -> u8{
         match addr {
+            0xFF00 => self.input.borrow().read_u8(),
             0xFF40...0xFF4F => self.gpu.read_u8(addr),
             DMG_STATUS_REG => self.dmg_status,
             _ => if self.cgb_enabled {
@@ -202,6 +227,7 @@ impl Memory {
     
     fn write_u8_io(&mut self, addr: u16, value: u8) {
         match addr {
+            0xFF00 => self.input.borrow_mut().write_u8(value),
             0xFF40...0xFF4F => self.gpu.write_u8(addr, value),
             DMG_STATUS_REG => self.dmg_status = value,
             _ => if self.cgb_enabled {

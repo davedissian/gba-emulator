@@ -433,7 +433,7 @@ impl CpuOps for Cpu {
         let operand = self.read_arg16(i);
         let result = self.regs.hl().wrapping_add(operand);
         self.regs.flag(Flag::N, false);
-        unborrow!(self.regs.flag(Flag::H, (self.regs.hl() & 0xFFF + operand & 0xFFF) > 0xFFF));
+        unborrow!(self.regs.flag(Flag::H, ((self.regs.hl() & 0xFFF) + (operand & 0xFFF)) > 0xFFF));
         unborrow!(self.regs.flag(Flag::C, self.regs.hl() > (0xFFFF - operand)));
         self.regs.set_hl(result);
         self.internal_cycle();

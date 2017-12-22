@@ -1,8 +1,8 @@
-extern crate softrender;
+extern crate rasteriser;
 
-use self::softrender::driver;
+use self::rasteriser::driver;
 
-pub use self::softrender::driver::Colour;
+pub use self::rasteriser::driver::{Colour, KeyCode, KeyState};
 
 struct Display {
     driver: Box<driver::Driver>,
@@ -75,9 +75,12 @@ impl Gpu {
         }
     }
 
+    pub fn set_key_callback(&mut self, callback: Box<FnMut(KeyCode, KeyState)>) {
+        self.display.window.set_input_callback(callback);
+    }
+
     pub fn tick(&mut self, cycles: u32) -> bool {
         self.modeclock = self.modeclock.wrapping_add(cycles);
-        //println!("self.modeclock {}", self.modeclock);
         match self.mode {
             // OAM read mode.
             2 => if self.modeclock >= 80 { self.modeclock = 0; self.mode = 3; },
@@ -85,7 +88,7 @@ impl Gpu {
             3 => if self.modeclock >= 172 {
                 self.modeclock = 0;
                 self.mode = 0;
-                self.renderscanline();
+                self.render_scanline();
             },
             // Hblank. After the last Hblank, update the screen.
             0 => if self.modeclock >= 204 {
@@ -93,7 +96,7 @@ impl Gpu {
                 self.line += 1;
                 if self.line == 143 {
                     self.mode = 1;
-                    if !self.putimagedata() {
+                    if !self.display_image() {
                         return false;
                     }
                 } else {
@@ -158,7 +161,7 @@ impl Gpu {
         }
     }
 
-    fn renderscanline(&mut self) {
+    fn render_scanline(&mut self) {
         // VRAM offset of the tile map.
         let tile_map_offset = if self.bgmap == 0 { 0x9800u16 } else { 0x9C00u16 };
 
@@ -206,7 +209,7 @@ impl Gpu {
         }
     }
 
-    fn putimagedata(&mut self) -> bool {
+    fn display_image(&mut self) -> bool {
         self.display.update()
     }
 }

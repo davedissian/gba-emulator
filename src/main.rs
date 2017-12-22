@@ -6,9 +6,10 @@ extern crate time;
 extern crate unborrow;
 
 mod cpu;
-mod memory;
 mod cartridge;
 mod gpu;
+mod input;
+mod memory;
 
 use std::rc::Rc;
 use std::cell::RefCell;
