@@ -141,17 +141,17 @@ impl Gpu {
             0x8000...0x9FFF => self.vram[addr as usize - 0x8000] = value,
             0xFE00...0xFE9F => self.oam[addr as usize - 0xFE00] = value,
             0xFF40 => {
-                println!("WARNING: Writing to $FF40: {:b}", value);
                 self.switchlcd = if value & 0x80 != 0 { 1 } else { 0 };
                 self.bgtile = if value & 0x10 != 0 { 1 } else { 0 };
                 self.bgmap = if value & 0x08 != 0 { 1 } else { 0 };
                 self.switchbg = if value & 0x01 != 0 { 1 } else { 0 };
+                println!("WARNING: Writing to $FF40: {:b} bgtile: {} bgmap: {}", value, self.bgtile, self.bgmap);
             },
             0xFF41 => {
 
             },
-            0xFF42 => self.r_scy = value,
-            0xFF43 => self.r_scx = value,
+            0xFF42 => { println!("New Screen Y: {}", value); self.r_scy = value },
+            0xFF43 => { println!("New Screen X: {}", value); self.r_scx = value },
             0xFF44 => println!("WARNING: Attempting to write to current scan line (read only)"),
             0xFF47 => self.r_bgp = value,
             _ => println!("WARNING: GPU cannot write to this memory address. Addr = 0x{:X}", addr),
@@ -160,43 +160,40 @@ impl Gpu {
 
     fn renderscanline(&mut self) {
         // VRAM offset of the tile map.
-        let mut tile_map_offset = if self.bgmap == 0 { 0x1800u16 } else { 0x1C00u16 };
-        tile_map_offset += ((self.line as u16 + self.r_scy as u16) & 0xff) >> 3;
+        let tile_map_offset = if self.bgmap == 0 { 0x9800u16 } else { 0x9C00u16 };
 
-        // Which tile to start with.
-        let mut tile_offset = (self.r_scx >> 3) as u16;
+        let screen_y = self.line;
 
-        // LOCATION WITHIN TILE:
-
-        // Which line of pixels to use in the tiles
-        let y = (self.line + self.r_scy) & 0x7;
-
-        // Where in the tileline to start
-        let mut x = self.r_scx & 0x7;
-
-        // Read tile index from VRAM.
-        let mut tile = self.read_u8(0x8000u16 + tile_map_offset + tile_offset) as u16;
-        if self.bgtile == 0{
-            tile = (((tile as u8) as i8) as i16 + 256) as u16;
-        }
+        let tile_y = screen_y.wrapping_add(self.r_scy) >> 3; // Tile Y.
+        let pixel_y = screen_y.wrapping_add(self.r_scy) & 0x7; // Pixel Y within tile.
 
         // For each pixel on this scanline.
-        for i in 0..160 {
-            let palette = self.r_bgp;
+        for screen_x in 0u8..160 {
+            let tile_row_start = tile_map_offset + (tile_y as u16) * 32;
 
-            // Read tile data.
-            let tile_data_offset = tile << 4; // 16-bytes per tile.
-            let tile_row_offset = (y << 1) as u16;
-            let tile_data_low = self.read_u8(0x8000u16 + tile_data_offset + tile_row_offset);
-            let tile_data_high = self.read_u8(0x8000u16 + tile_data_offset + tile_row_offset + 1);
+            let tile_x = screen_x.wrapping_add(self.r_scx) >> 3; // Tile X.
+            let pixel_x = screen_x.wrapping_add(self.r_scx) & 0x7; // Pixel X within tile.
 
-            // Tile row: 2 bytes (where tile[n][x] is the low bit and tile[n+1][x] is the high bit)
+            // Get tile number.
+            let tile = self.read_u8(tile_row_start + tile_x as u16);
 
-            // Extract colour
-            let bit_index = 7 - x;
+            // Get row data within tile.
+            // Assuming tile set 1.
+            let tile_data_start = if self.bgtile == 1 {
+                0x8000u16 + (tile as u16) * 16
+            } else {
+                0x8800u16 + ((((tile as i8) as i16) + 128) as u16) * 16
+            };
+            let tile_row_offset = (pixel_y as u16) << 1; // Row offset within tile. 2 bytes per row.
+            let tile_data_low = self.read_u8(tile_data_start + tile_row_offset);
+            let tile_data_high = self.read_u8(tile_data_start + tile_row_offset + 1);
+
+            // Read pixel data.
+            let bit_index = 7 - pixel_x;
             let colour_data = ((tile_data_low >> bit_index) & 0b1) | ((tile_data_high >> bit_index) & 0b1) << 1;
 
             // Map to real colour based on palette.
+            let palette = self.r_bgp;
             let colour = (palette >> (colour_data * 2)) & 0b11;
             let display_colour = match colour {
                 0 => Colour::RGBA(255, 255, 255, 255),
@@ -205,32 +202,7 @@ impl Gpu {
                 3 => Colour::RGBA(0, 0, 0, 255),
                 _ => panic!("ERROR: Unknown display colour {}", colour)
             };
-            self.display.put_pixel(i, self.line as usize, &display_colour);
-
-            println!("tile {} {} (at {:x}) - x,y: {},{} - data start {:x} - colour {} - tile offset {}/32",
-                     tile,
-                     ((0x8000u16 + tile_data_offset + tile_row_offset) >> 4) & 511,
-                     0x8000u16 + tile_data_offset + tile_row_offset,
-                        x, y,
-                     0x8000u16 + tile_data_offset,
-                     colour, tile_offset);
-
-            // Increment x position in tile.
-            x += 1;
-
-            // Reached end of tile?
-            if x == 8 {
-                x = 0;
-
-                // Advance tile.
-                tile_offset = (tile_offset + 1) & 0x1f;
-
-                // Read tile index from VRAM.
-                tile = self.read_u8(0x8000 + tile_map_offset + tile_offset) as u16;
-                if self.bgtile == 0 {
-                    tile = (((tile as u8) as i8) as i16 + 256) as u16;
-                }
-            }
+            self.display.put_pixel(screen_x as usize, screen_y as usize, &display_colour);
         }
     }
 

@@ -51,18 +51,33 @@ macro_rules! write_reg_pair {
 }
 
 impl Registers {
-    pub fn new() -> Registers {
-        Registers {
-            a: 0x01,
-            f: 0xB0,
-            b: 0x00,
-            c: 0x13,
-            d: 0x00,
-            e: 0xD8,
-            h: 0x01,
-            l: 0x4D,
-            pc: 0x0100,
-            sp: 0xFFFE,
+    pub fn new(skip_boot: bool) -> Registers {
+        if skip_boot {
+            Registers {
+                a: 0x01,
+                f: 0xB0,
+                b: 0x00,
+                c: 0x13,
+                d: 0x00,
+                e: 0xD8,
+                h: 0x01,
+                l: 0x4D,
+                pc: 0x0100,
+                sp: 0xFFFE,
+            }
+        } else {
+            Registers {
+                a: 0,
+                f: 0,
+                b: 0,
+                c: 0,
+                d: 0,
+                e: 0,
+                h: 0,
+                l: 0,
+                pc: 0,
+                sp: 0,
+            }
         }
     }
 
@@ -126,35 +141,35 @@ mod test {
 
     #[test]
     fn set_z_flag() {
-        let mut r = Registers::new();
+        let mut r = Registers::new(false);
         r.flag(Flag::Z, true);
         assert_eq!(r.f, 0b10000000)
     }
 
     #[test]
     fn set_n_flag() {
-        let mut r = Registers::new();
+        let mut r = Registers::new(false);
         r.flag(Flag::N, true);
         assert_eq!(r.f, 0b01000000)
     }
 
     #[test]
     fn set_h_flag() {
-        let mut r = Registers::new();
+        let mut r = Registers::new(false);
         r.flag(Flag::H, true);
         assert_eq!(r.f, 0b00100000)
     }
 
     #[test]
     fn set_c_flag() {
-        let mut r = Registers::new();
+        let mut r = Registers::new(false);
         r.flag(Flag::C, true);
         assert_eq!(r.f, 0b00010000)
     }
 
     #[test]
     fn reset_c_flag_only() {
-        let mut r = Registers::new();
+        let mut r = Registers::new(false);
         r.f = 0b00010000;
         r.flag(Flag::C, false);
         assert_eq!(r.f, 0b00000000)
@@ -162,7 +177,7 @@ mod test {
 
     #[test]
     fn reset_z_and_c_flag_with_all_set() {
-        let mut r = Registers::new();
+        let mut r = Registers::new(false);
         r.f = 0b11010000;
         r.flag(Flag::Z, false);
         r.flag(Flag::C, false);

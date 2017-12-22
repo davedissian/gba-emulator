@@ -39,7 +39,7 @@ impl Cpu {
         Cpu {
             running: true,
             memory: memory,
-            regs: Registers::new(),
+            regs: Registers::new(true),
             clock: Clock {
                 m: 0,
                 t: 0
